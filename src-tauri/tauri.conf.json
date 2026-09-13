@@ -28,13 +28,29 @@
   },
   "bundle": {
     "active": true,
-    "targets": "all",
+    "targets": [
+      "app",
+      "dmg",
+      "nsis"
+    ],
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
       "icons/128x128@2x.png",
       "icons/icon.icns",
       "icons/icon.ico"
+    ],
+    "category": "Utility",
+    "shortDescription": "A NeXTSTEP-style workspace",
+    "longDescription": "ReWorkspace recreates the look of the NeXTSTEP 3.3 desktop as a normal desktop application. Not affiliated with NeXT or Apple.",
+    "windows": {
+      "nsis": {
+        "installMode": "currentUser"
+      }
+    },
+    "resources": [
+      "../THIRD_PARTY_LICENSES.md",
+      "../src/assets/fonts/LICENSE-Liberation.txt"
     ]
   }
 }

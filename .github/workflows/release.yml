@@ -1,0 +1,54 @@
+name: release
+on:
+  push:
+    tags: ["v*"]
+permissions:
+  contents: write
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-14
+            target: aarch64-apple-darwin
+            args: --target aarch64-apple-darwin
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            args: --target x86_64-pc-windows-msvc
+          - os: windows-latest
+            target: aarch64-pc-windows-msvc
+            args: --target aarch64-pc-windows-msvc
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with: { version: 10 }
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: pnpm }
+      - uses: dtolnay/rust-toolchain@stable
+        with: { targets: "${{ matrix.target }}" }
+      - uses: swatinem/rust-cache@v2
+        with: { workspaces: src-tauri }
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm exec tsc --noEmit
+      - run: cargo test --manifest-path src-tauri/Cargo.toml
+        if: matrix.target != 'aarch64-pc-windows-msvc'
+      - uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: ReWorkspace ${{ github.ref_name }}
+          releaseBody: "Unsigned builds. macOS: run `xattr -cr ReWorkspace.app` after copying it out of the DMG (see README)."
+          releaseDraft: true
+          args: ${{ matrix.args }}
+      - name: Upload portable Windows exe
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          arch=$([[ "${{ matrix.target }}" == aarch64* ]] && echo arm64 || echo x64)
+          cp "src-tauri/target/${{ matrix.target }}/release/reworkspace.exe" "ReWorkspace-portable-$arch.exe"
+          gh release upload "${{ github.ref_name }}" "ReWorkspace-portable-$arch.exe" --clobber
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

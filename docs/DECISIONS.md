@@ -8,3 +8,5 @@ One line per deviation, with the reason.
 - Copy-name clashes insert the suffix before the extension (`a copy.txt`), like the Finder, instead of literally appending.
 - Recycler tile is pinned to the bottom-right corner (as on real NeXT screens) rather than glued under the last Dock tile, so the Dock strip between the last app tile and the Recycler is a real drop area for adding apps (§7.4).
 - Headless review renders (Playwright/Chromium) use a small in-browser mock of the backend (`src/mock.ts`); it is only reached when `window.__TAURI_INTERNALS__` is absent.
+- macOS app icons are extracted with the built-in `plutil` (icon file name from Info.plist) and `sips` (icns → 48 px PNG) instead of the `icns`/`png` crates: zero dependencies, handles every icns variant. Windows uses PowerShell `System.Drawing.Icon.ExtractAssociatedIcon` (32 px, scaled by CSS) as the PRD's allowed fallback path.
+- `~/.Trash` is protected by macOS TCC: listing it and `trash_is_empty` fail unless the app has Full Disk Access. The Recycler window explains this and offers "Open in Finder"; the tile then shows the empty state. Moving files *to* the trash (NSFileManager) works without it.

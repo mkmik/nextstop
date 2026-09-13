@@ -1,7 +1,7 @@
 import "./styles/palette.css";
 import "./styles/chrome.css";
 import { Screen, scale } from "./screen/screen";
-import { el } from "./chrome/ui";
+import { el, isMac } from "./chrome/ui";
 import { NXWindow } from "./chrome/window";
 import { Scroller } from "./chrome/scroller";
 import { Menu, MenuItem } from "./chrome/menu";
@@ -12,6 +12,7 @@ import { icon } from "./icons";
 import { State, defaults, dirty } from "./state";
 import { FileViewer } from "./apps/workspace/fileviewer";
 import { Inspector } from "./apps/workspace/inspector";
+import { Dock } from "./dock/dock";
 import { setWindowsPaths, join } from "./paths";
 
 const screen = new Screen();
@@ -19,6 +20,7 @@ const demo = new URLSearchParams(location.search).get("demo");
 const state: State = defaults("/");
 let fv: FileViewer;
 let inspector: Inspector | null = null;
+let dock: Dock;
 let clipboard: string[] = [];
 const showInspector = () => {
   const g = state.windows.inspector;
@@ -39,7 +41,6 @@ const showConsole = () => {
   c.open = true; dirty();
 };
 const showInfo = () => (infoWin ??= createInfo(screen)).show();
-const nyi = (name: string) => () => log(`not implemented: ${name}`);
 
 async function hide() {
   if (!hasTauri) return log("Hide: no OS window in the browser");
@@ -62,7 +63,7 @@ const mainItems: MenuItem[] = [
     { label: "Duplicate", key: "d", action: () => fv.duplicate() },
     { label: "Compress", disabled: true },
     { label: "Destroy", key: "r", action: () => fv.destroySelection() },
-    { label: "Empty Recycler", action: nyi("Empty Recycler") } ] },
+    { label: "Empty Recycler", disabled: () => !isMac, action: () => dock.emptyRecycler() } ] },
   { label: "Edit", submenu: [
     { label: "Cut", key: "x", disabled: true },
     { label: "Copy", key: "c", action: () => { clipboard = fv.deepSelection.map((e) => e.path); log(`copied ${clipboard.length} path(s)`); } },
@@ -123,14 +124,17 @@ function buildMenus() {
 
 // ---- boot (§10): chrome first, directory listings arrive later
 async function boot() {
-  const [home, roots] = await Promise.all([call<string>("home_dir"), call<string[]>("root_dirs")]);
+  const [home, roots, defaultDock] = await Promise.all([call<string>("home_dir"), call<string[]>("root_dirs"), call<string[]>("default_dock")]);
   setWindowsPaths(roots[0] !== "/");
   Object.assign(state, defaults(home));
+  state.dock = defaultDock;
   const apps = roots[0] === "/" ? "/Applications" : "C:\\Program Files";
   state.shelf = await call<string[]>("filter_existing", { paths: [home, roots[0], apps, join(home, "Desktop"), join(home, "Documents")] });
   fv = new FileViewer(screen, state, home, roots);
   fv.onSelection = (sel) => inspector?.update(sel[0] ?? null);
   fv.renderShelf();
+  dock = new Dock(screen, state, home, { showFileViewer, fsChanged: () => fv.refresh() });
+  fv.onFsChange = () => dock.updateTrash();
   buildMenus();
   if (state.windows.file_viewer.open) fv.win.show();
   if (state.windows.inspector.open) showInspector();

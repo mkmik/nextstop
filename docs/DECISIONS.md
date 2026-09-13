@@ -12,3 +12,5 @@ One line per deviation, with the reason.
 - `~/.Trash` is protected by macOS TCC: listing it and `trash_is_empty` fail unless the app has Full Disk Access. The Recycler window explains this and offers "Open in Finder"; the tile then shows the empty state. Moving files *to* the trash (NSFileManager) works without it.
 - Default scale threshold (§6.4 "1600×1000 device pixels") is evaluated in CSS pixels. Read literally, a Retina Mac at the default 1120×832 window (2240×1664 device px) would start at 2× with a 560×416 Screen that cannot hold the 640×480 File Viewer.
 - The mock backend also persists `state.json` to `localStorage` so the browser demo keeps positions across reloads (used for the torn-off-menu persistence check).
+- `pnpm tauri build` on the dev machine builds `ReWorkspace.app` but the DMG step (`bundle_dmg.sh`, which drives the Finder via AppleScript to lay out the image) fails in the sandboxed shell; the release workflow builds the DMG on a GitHub macOS runner. Locally use `pnpm tauri build --bundles app`.
+- Bundle identifier is `com.reworkspace.desktop` (Tauri warns that identifiers ending in `.app` clash with the bundle extension on macOS).

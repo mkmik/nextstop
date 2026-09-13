@@ -79,7 +79,7 @@ export class Screen {
 
   register(w: KeyTarget) { this.wins.push(w); }
   unregister(w: KeyTarget) { this.wins = this.wins.filter((x) => x !== w); if (this.keyWin === w) this.dropKey(w); }
-  front(w: KeyTarget) { w.el.style.zIndex = String(++this.zTop); }
+  front(w: { el: HTMLElement }) { w.el.style.zIndex = String(++this.zTop); }
   makeKey(w: KeyTarget) {
     this.front(w);
     if (this.keyWin === w) return;

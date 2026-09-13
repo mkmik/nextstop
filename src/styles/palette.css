@@ -1,0 +1,39 @@
+@font-face { font-family: "Liberation Sans"; font-weight: 400; src: url(../assets/fonts/LiberationSans-Regular.woff2) format("woff2"); }
+@font-face { font-family: "Liberation Sans"; font-weight: 700; src: url(../assets/fonts/LiberationSans-Bold.woff2) format("woff2"); }
+@font-face { font-family: "Liberation Mono"; font-weight: 400; src: url(../assets/fonts/LiberationMono-Regular.woff2) format("woff2"); }
+
+:root {
+  --nx-black: #000000;
+  --nx-dark:  #555555;
+  --nx-light: #aaaaaa;
+  --nx-white: #ffffff;
+  --nx-select: #000000;
+  --nx-font: "Liberation Sans", Helvetica, Arial, sans-serif;
+  --nx-mono: "Liberation Mono", Menlo, Consolas, monospace;
+  --nx-cursor: url(../assets/icons/arrow.svg) 0 0, default;
+}
+
+* { box-sizing: border-box; scrollbar-width: none; cursor: var(--nx-cursor); }
+*::-webkit-scrollbar { display: none; }
+html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; background: var(--nx-dark); }
+body {
+  font: 12px/14px var(--nx-font); color: var(--nx-black);
+  user-select: none; -webkit-user-select: none;
+}
+img { display: block; -webkit-user-drag: none; }
+
+.nx-raised {
+  background: var(--nx-light);
+  box-shadow: inset 1px 1px 0 var(--nx-white), inset -1px -1px 0 var(--nx-dark), 1px 1px 0 var(--nx-black);
+}
+.nx-sunken {
+  background: var(--nx-light);
+  box-shadow: inset 1px 1px 0 var(--nx-dark), inset -1px -1px 0 var(--nx-white);
+}
+/* pressed raised control: swaps to sunken for the duration of the press */
+.nx-raised.pressed { box-shadow: inset 1px 1px 0 var(--nx-dark), inset -1px -1px 0 var(--nx-white), 1px 1px 0 var(--nx-black); }
+
+.nx-ellipsis { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.nx-bold { font-weight: 700; }
+.nx-small { font-size: 10px; line-height: 12px; }
+.nx-mono { font: 11px/13px var(--nx-mono); }

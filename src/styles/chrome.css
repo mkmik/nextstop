@@ -1,0 +1,63 @@
+/* ---- Screen and layers ---- */
+#screen { position: absolute; left: 0; top: 0; transform-origin: 0 0; background: var(--nx-dark); overflow: hidden; }
+.nx-layer { position: absolute; inset: 0; pointer-events: none; }
+.nx-layer > * { pointer-events: auto; }
+#layer-modal.active { pointer-events: auto; }
+
+/* ---- Demo page ---- */
+.demo { position: absolute; left: 40px; top: 40px; display: flex; flex-direction: column; gap: 16px; }
+.demo-row { display: flex; gap: 16px; align-items: center; }
+.nx-button { height: 24px; padding: 0 12px; line-height: 22px; text-align: center; white-space: nowrap; }
+.nx-well { padding: 4px 8px; }
+
+/* ---- Window (§7.2) ---- */
+.nx-window { position: absolute; display: flex; flex-direction: column; background: var(--nx-light); box-shadow: 0 0 0 1px var(--nx-black); }
+.nx-titlebar {
+  position: relative; flex: none; height: 22px; line-height: 22px; text-align: center;
+  background: var(--nx-dark); color: var(--nx-white); font-weight: 700;
+  box-shadow: inset 1px 1px 0 var(--nx-white), inset -1px -1px 0 var(--nx-dark);
+}
+.nx-window.key .nx-titlebar { background: var(--nx-black); box-shadow: inset 1px 1px 0 var(--nx-dark), inset -1px -1px 0 var(--nx-dark); }
+.nx-tb-title { position: absolute; left: 22px; right: 22px; top: 0; bottom: 0; }
+.nx-tb-btn { position: absolute; top: 4px; width: 14px; height: 14px; }
+.nx-tb-btn.mini { left: 4px; }
+.nx-tb-btn.close { right: 4px; }
+.nx-tb-btn svg { display: block; }
+.nx-content { flex: 1; position: relative; overflow: hidden; box-shadow: inset 1px 1px 0 var(--nx-white), inset -1px -1px 0 var(--nx-dark); }
+.nx-resizebar { position: relative; flex: none; height: 8px; }
+.nx-resizebar .seg { position: absolute; top: 0; bottom: 0; }
+.nx-resizebar .left  { left: 0; width: 25%;  cursor: url(../assets/icons/resize-nesw.svg) 8 8, nesw-resize; }
+.nx-resizebar .mid   { left: 25%; width: 50%; cursor: url(../assets/icons/resize-ns.svg) 8 8, ns-resize; }
+.nx-resizebar .right { right: 0; width: 25%; cursor: url(../assets/icons/resize-nwse.svg) 8 8, nwse-resize; }
+.nx-resizebar .div1, .nx-resizebar .div2 { position: absolute; top: 1px; bottom: 1px; width: 1px; background: var(--nx-dark); pointer-events: none; }
+.nx-resizebar .div1 { left: 25%; } .nx-resizebar .div2 { left: 75%; }
+
+/* miniwindow (§7.2) */
+.nx-miniwindow { position: absolute; bottom: 0; width: 64px; height: 64px; }
+.nx-miniwindow .mw-icon { position: absolute; left: 12px; top: 4px; width: 40px; height: 40px; }
+.nx-miniwindow .mw-title { position: absolute; left: 2px; right: 2px; bottom: 3px; text-align: center; }
+
+/* ---- Scroller (§7.10) ---- */
+.nx-scroller { position: relative; flex: none; display: flex; }
+.nx-scroller.v { width: 16px; flex-direction: column; }
+.nx-scroller.h { height: 16px; flex-direction: row; }
+.nx-scroller .track { position: relative; flex: 1; }
+.nx-scroller .knob { position: absolute; }
+.nx-scroller.v .knob { left: 0; right: 0; }
+.nx-scroller.h .knob { top: 0; bottom: 0; }
+.nx-scroller .dimple { position: absolute; left: 50%; top: 50%; width: 4px; height: 4px; margin: -2px 0 0 -2px; }
+.nx-scroller .arrow { flex: none; width: 16px; height: 16px; display: flex; align-items: center; justify-content: center; color: var(--nx-black); }
+.nx-scroller .arrow.disabled { color: var(--nx-dark); }
+.nx-scroller .arrow svg { display: block; }
+.nx-scroll { overflow: hidden; }
+
+/* ---- Tile (§7.4) ---- */
+.nx-tile { position: relative; width: 64px; height: 64px; flex: none; }
+.nx-tile > img, .nx-tile > .icon { position: absolute; left: 8px; top: 8px; width: 48px; height: 48px; }
+.nx-tile .dots { position: absolute; left: 6px; top: 54px; width: 10px; height: 2px;
+  background: linear-gradient(to right, #000 2px, transparent 2px) 0 0 / 4px 2px repeat-x; }
+.demo-scrollrow { flex: 1; display: flex; min-height: 0; }
+.demo-view { flex: 1; }
+.demo-line { height: 18px; line-height: 18px; padding-left: 4px; }
+.demo-hview { flex: none; height: 20px; line-height: 20px; white-space: nowrap; }
+.demo-hcontent { display: inline-block; padding: 0 4px; }

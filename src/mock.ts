@@ -44,8 +44,9 @@ export async function mock<T>(cmd: string, a: Record<string, unknown>): Promise<
     case "dir_size": return r(123456789);
     case "trash_is_empty": return r(true);
     case "default_dock": return r(["/Applications/Safari.app", "/Applications/TextEdit.app"]);
-    case "load_state": return r({ state: null, no_anim: false });
-    case "save_state": case "open_path": case "open_with": case "launch_app": case "trash_paths": case "destroy_paths": case "move_paths": case "copy_paths": case "new_folder": case "duplicate_paths": case "empty_trash": case "quit":
+    case "load_state": return r({ state: JSON.parse(localStorage.getItem("mock-state") ?? "null"), no_anim: false, message: null });
+    case "save_state": localStorage.setItem("mock-state", JSON.stringify(a.state)); return r(undefined);
+    case "open_path": case "open_with": case "launch_app": case "trash_paths": case "destroy_paths": case "move_paths": case "copy_paths": case "new_folder": case "duplicate_paths": case "empty_trash": case "quit":
       console.log("mock", cmd, JSON.stringify(a)); return r(cmd === "new_folder" ? a.parent + "/New Folder" : cmd === "duplicate_paths" ? [] : undefined);
     case "trash_list": return r([]);
     case "app_icon_png": throw new Error("mock: no icons");

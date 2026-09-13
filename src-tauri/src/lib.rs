@@ -1,5 +1,6 @@
 mod apps;
 mod fs;
+mod state;
 
 use tauri::Manager;
 
@@ -32,6 +33,10 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .setup(|app| {
             let win = app.get_webview_window("main").expect("main window");
+            if let Some((w, h)) = state::saved_window_size() {
+                let _ = win.set_size(tauri::LogicalSize::new(w, h));
+                let _ = win.center();
+            }
             win.show()?;
             Ok(())
         })
@@ -40,7 +45,8 @@ pub fn run() {
             fs::list_dir, fs::home_dir, fs::root_dirs, fs::filter_existing, fs::file_meta, fs::read_text_head, fs::read_file_b64,
             fs::dir_size, fs::new_folder, fs::move_paths, fs::copy_paths, fs::duplicate_paths, fs::destroy_paths,
             fs::trash_paths, fs::trash_list, fs::trash_is_empty, fs::empty_trash,
-            apps::launch_app, apps::open_with, apps::default_dock, apps::app_icon_png, apps::open_recycle_bin
+            apps::launch_app, apps::open_with, apps::default_dock, apps::app_icon_png, apps::open_recycle_bin,
+            state::load_state, state::save_state
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

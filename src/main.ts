@@ -2,14 +2,14 @@ import "./styles/palette.css";
 import "./styles/chrome.css";
 import { Screen, scale } from "./screen/screen";
 import { el, isMac } from "./chrome/ui";
-import { NXWindow } from "./chrome/window";
+import { NXWindow, setAnimations } from "./chrome/window";
 import { Scroller } from "./chrome/scroller";
 import { Menu, MenuItem } from "./chrome/menu";
 import { alert } from "./chrome/alert";
 import { createConsole, createInfo, log } from "./apps/workspace/panels";
 import { call, hasTauri } from "./backend";
 import { icon } from "./icons";
-import { State, defaults, dirty } from "./state";
+import { State, defaults, dirty, onDirty } from "./state";
 import { FileViewer } from "./apps/workspace/fileviewer";
 import { Inspector } from "./apps/workspace/inspector";
 import { Dock } from "./dock/dock";
@@ -48,7 +48,8 @@ async function hide() {
   await getCurrentWindow().minimize();
 }
 async function quit() { await saveNow(); call("quit").catch(() => log("Quit: no backend")); }
-let saveNow = async () => {}; // replaced in M5
+let saveNow: () => Promise<void> = async () => {};
+interface Loaded { state: Partial<State> | null; no_anim: boolean; message: string | null }
 
 // ---- main menu (§7.3, exhaustive v1 contents)
 const mainItems: MenuItem[] = [
@@ -124,12 +125,27 @@ function buildMenus() {
 
 // ---- boot (§10): chrome first, directory listings arrive later
 async function boot() {
-  const [home, roots, defaultDock] = await Promise.all([call<string>("home_dir"), call<string[]>("root_dirs"), call<string[]>("default_dock")]);
+  const [home, roots, defaultDock, loaded] = await Promise.all([
+    call<string>("home_dir"), call<string[]>("root_dirs"), call<string[]>("default_dock"), call<Loaded>("load_state")]);
   setWindowsPaths(roots[0] !== "/");
-  Object.assign(state, defaults(home));
-  state.dock = defaultDock;
-  const apps = roots[0] === "/" ? "/Applications" : "C:\\Program Files";
-  state.shelf = await call<string[]>("filter_existing", { paths: [home, roots[0], apps, join(home, "Desktop"), join(home, "Documents")] });
+  const base = defaults(home);
+  base.dock = defaultDock;
+  base.shelf = [home, roots[0], roots[0] === "/" ? "/Applications" : "C:\\Program Files", join(home, "Desktop"), join(home, "Documents")];
+  base.scale = innerWidth >= 1600 && innerHeight >= 1000 ? 2 : 1; // §6.4 (threshold read in CSS px, see DECISIONS)
+  const saved = loaded.state ?? {};
+  Object.assign(state, base, saved, { version: 1, windows: { ...base.windows, ...(saved.windows ?? {}) } });
+  if (state.scale !== 2) state.scale = 1;
+  if (loaded.message) log(loaded.message);
+  // §11: paths that no longer exist are dropped and logged
+  const keep = async (paths: string[], what: string) => {
+    const ok = await call<string[]>("filter_existing", { paths });
+    paths.filter((p) => !ok.includes(p)).forEach((p) => log(`dropped missing ${what} entry ${p}`));
+    return ok;
+  };
+  [state.dock, state.shelf] = await Promise.all([keep(state.dock, "Dock"), keep(state.shelf, "Shelf")]);
+  if (!(await keep([state.windows.file_viewer.path], "File Viewer")).length) state.windows.file_viewer.path = home;
+  setAnimations(state.animations && !loaded.no_anim);
+  screen.setScale(state.scale);
   fv = new FileViewer(screen, state, home, roots);
   fv.onSelection = (sel) => inspector?.update(sel[0] ?? null);
   fv.renderShelf();
@@ -139,6 +155,16 @@ async function boot() {
   if (state.windows.file_viewer.open) fv.win.show();
   if (state.windows.inspector.open) showInspector();
   if (state.windows.console.open) showConsole();
+  // persistence: debounced 2 s after any change, on OS window close, and on Quit
+  saveNow = () => call("save_state", { state }).then(() => {}, (e) => log(`save failed: ${e}`));
+  let timer = 0;
+  onDirty(() => { clearTimeout(timer); timer = window.setTimeout(saveNow, 2000); });
+  window.addEventListener("resize", () => { state.os_window = { w: innerWidth, h: innerHeight }; dirty(); });
+  if (hasTauri) {
+    const { getCurrentWindow } = await import("@tauri-apps/api/window");
+    const w = getCurrentWindow();
+    w.onCloseRequested(async (e) => { e.preventDefault(); await saveNow(); await w.destroy(); });
+  }
   log("ReWorkspace started");
   await fv.navigate(state.windows.file_viewer.path);
   setInterval(() => { if (document.hasFocus()) fv.refresh(); }, 5000);

@@ -10,10 +10,23 @@ import { createConsole, createInfo, log } from "./apps/workspace/panels";
 import { call, hasTauri } from "./backend";
 import { icon } from "./icons";
 import { State, defaults, dirty } from "./state";
+import { FileViewer } from "./apps/workspace/fileviewer";
+import { Inspector } from "./apps/workspace/inspector";
+import { setWindowsPaths, join } from "./paths";
 
 const screen = new Screen();
 const demo = new URLSearchParams(location.search).get("demo");
 const state: State = defaults("/");
+let fv: FileViewer;
+let inspector: Inspector | null = null;
+let clipboard: string[] = [];
+const showInspector = () => {
+  const g = state.windows.inspector;
+  (inspector ??= new Inspector(screen, state)).win.show();
+  inspector.update(fv.selEntry);
+  g.open = true; dirty();
+};
+const showFileViewer = () => { fv.win.show(); state.windows.file_viewer.open = true; dirty(); };
 
 // ---- lazily created panels
 let consoleWin: NXWindow | null = null, infoWin: NXWindow | null = null;
@@ -43,20 +56,20 @@ const mainItems: MenuItem[] = [
     { label: "Preferences…", disabled: true },
     { label: "Help…", disabled: true } ] },
   { label: "File", submenu: [
-    { label: "Open", key: "o", action: nyi("Open") },
+    { label: "Open", key: "o", action: () => fv.open() },
     { label: "Open as Folder", key: "O", disabled: true },
-    { label: "New Folder", key: "n", action: nyi("New Folder") },
-    { label: "Duplicate", key: "d", action: nyi("Duplicate") },
+    { label: "New Folder", key: "n", action: () => fv.newFolder() },
+    { label: "Duplicate", key: "d", action: () => fv.duplicate() },
     { label: "Compress", disabled: true },
-    { label: "Destroy", key: "r", action: nyi("Destroy") },
+    { label: "Destroy", key: "r", action: () => fv.destroySelection() },
     { label: "Empty Recycler", action: nyi("Empty Recycler") } ] },
   { label: "Edit", submenu: [
     { label: "Cut", key: "x", disabled: true },
-    { label: "Copy", key: "c", action: nyi("Copy") },
-    { label: "Paste", key: "v", action: nyi("Paste") },
-    { label: "Select All", key: "a", action: nyi("Select All") } ] },
+    { label: "Copy", key: "c", action: () => { clipboard = fv.deepSelection.map((e) => e.path); log(`copied ${clipboard.length} path(s)`); } },
+    { label: "Paste", key: "v", disabled: () => clipboard.length === 0, action: () => fv.paste(clipboard) },
+    { label: "Select All", key: "a", action: () => fv.selectAll() } ] },
   { label: "Disk", submenu: [
-    { label: "Check for Disks", action: nyi("Check for Disks") },
+    { label: "Check for Disks", action: () => fv.refresh() },
     { label: "Eject", disabled: true } ] },
   { label: "View", submenu: [
     { label: "Browser", checked: () => true, action: () => {} },
@@ -65,14 +78,14 @@ const mainItems: MenuItem[] = [
     { label: "Scale", submenu: [
       { label: "1×", checked: () => scale === 1, action: () => setScale(1) },
       { label: "2×", checked: () => scale === 2, action: () => setScale(2) } ] },
-    { label: "Show Hidden Files", checked: () => state.show_hidden, action: () => { state.show_hidden = !state.show_hidden; dirty(); hooks.hiddenChanged(); } } ] },
+    { label: "Show Hidden Files", checked: () => state.show_hidden, action: () => { state.show_hidden = !state.show_hidden; dirty(); fv.refresh(); } } ] },
   { label: "Tools", submenu: [
-    { label: "Inspector…", key: "i", action: nyi("Inspector") },
+    { label: "Inspector…", key: "i", action: showInspector },
     { label: "Finder…", disabled: true },
     { label: "Processes…", disabled: true },
     { label: "Console…", action: showConsole } ] },
   { label: "Windows", submenu: [
-    { label: "File Viewer", action: nyi("File Viewer") },
+    { label: "File Viewer", action: showFileViewer },
     { label: "Arrange in Front", action: () => screen.wins.filter((w) => w.visible).sort((a, b) => +a.el.style.zIndex - +b.el.style.zIndex).forEach((w) => screen.front(w)) },
     { label: "Miniaturize Window", key: "m", action: () => (screen.keyWin as NXWindow | null)?.miniaturize() },
     { label: "Close Window", key: "w", action: () => (screen.keyWin as NXWindow | null)?.close() } ] },
@@ -80,9 +93,6 @@ const mainItems: MenuItem[] = [
   { label: "Hide", key: "h", gapBefore: true, action: hide },
   { label: "Quit", key: "q", action: quit },
 ];
-
-/** Hooks filled in by later milestones (File Viewer, Dock…). */
-const hooks = { hiddenChanged: () => {} };
 
 function setScale(s: 1 | 2) { state.scale = s; screen.setScale(s); dirty(); }
 
@@ -111,11 +121,29 @@ function buildMenus() {
   });
 }
 
-// ---- boot
+// ---- boot (§10): chrome first, directory listings arrive later
+async function boot() {
+  const [home, roots] = await Promise.all([call<string>("home_dir"), call<string[]>("root_dirs")]);
+  setWindowsPaths(roots[0] !== "/");
+  Object.assign(state, defaults(home));
+  const apps = roots[0] === "/" ? "/Applications" : "C:\\Program Files";
+  state.shelf = await call<string[]>("filter_existing", { paths: [home, roots[0], apps, join(home, "Desktop"), join(home, "Documents")] });
+  fv = new FileViewer(screen, state, home, roots);
+  fv.onSelection = (sel) => inspector?.update(sel[0] ?? null);
+  fv.renderShelf();
+  buildMenus();
+  if (state.windows.file_viewer.open) fv.win.show();
+  if (state.windows.inspector.open) showInspector();
+  if (state.windows.console.open) showConsole();
+  log("ReWorkspace started");
+  await fv.navigate(state.windows.file_viewer.path);
+  setInterval(() => { if (document.hasFocus()) fv.refresh(); }, 5000);
+  window.addEventListener("focus", () => fv.refresh());
+}
+
 if (demo === "chrome") demoChrome();
 else if (demo === "windows") demoWindows();
-else if (demo === "menus") demoMenus();
-else buildMenus();
+else boot().then(() => { if (demo === "menus") demoMenus(); }, (e) => { log(`boot failed: ${e}`); buildMenus(); showConsole(); });
 
 function demoChrome() {
   const box = el("div", "demo");
@@ -145,7 +173,6 @@ function demoWindows() {
 }
 
 function demoMenus() {
-  buildMenus();
   log("demo=menus started");
   showConsole();
   showInfo();

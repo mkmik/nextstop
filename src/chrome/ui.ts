@@ -26,4 +26,4 @@ export function truncMiddle(s: string, max: number): string {
 }
 
 export const isMac = navigator.platform.startsWith("Mac");
-export const cmdKey = (e: KeyboardEvent) => (isMac ? e.metaKey && !e.ctrlKey : e.ctrlKey && !e.metaKey);
+export const cmdKey = (e: { metaKey: boolean; ctrlKey: boolean }) => (isMac ? e.metaKey && !e.ctrlKey : e.ctrlKey && !e.metaKey);

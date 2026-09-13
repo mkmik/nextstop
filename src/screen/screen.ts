@@ -76,6 +76,7 @@ export class Screen {
   }
 
   setScale(s: number) { scale = s; this.layout(); }
+  scaleOf() { return scale; }
 
   register(w: KeyTarget) { this.wins.push(w); }
   unregister(w: KeyTarget) { this.wins = this.wins.filter((x) => x !== w); if (this.keyWin === w) this.dropKey(w); }

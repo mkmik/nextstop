@@ -36,6 +36,7 @@ fn main() {
         demo: flag("--demo"),
         home_override: flag("--home"),
         config_override: flag("--config"),
+        scale_override: flag("--scale").and_then(|v| v.trim_end_matches('x').parse().ok()),
     };
     if let Some(out) = flag("--render-icon") { // used by scripts/bundle-macos.sh to build the .icns
         let px: u32 = flag("--px").and_then(|v| v.parse().ok()).unwrap_or(512);
@@ -61,7 +62,7 @@ fn main() {
     let app = App::new(cfg, Arc::new(move |job| { let _ = proxy.send_event(job); }), fonts.clone());
     let mut h = Handler {
         app, fonts, icons, surfs: HashMap::new(), by_id: HashMap::new(), visible: rect(0, 0, 1120, 832), dpi: 1.0,
-        mods: Mods::default(), cursor: pt(0, 0), cursors: Vec::new(), focused: HashSet::new(), any_focus: false, zoom: 1, started: false,
+        mods: Mods::default(), cursor: pt(0, 0), cursors: Vec::new(), focused: HashSet::new(), any_focus: false, zoom: 1.0, started: false,
     };
     event_loop.run_app(&mut h).expect("run");
 }
@@ -88,18 +89,18 @@ struct Handler {
     cursors: Vec<CustomCursor>,
     focused: HashSet<WindowId>,
     any_focus: bool,
-    zoom: u8,
+    zoom: f32,
     started: bool,
 }
 
 impl Handler {
-    fn scale(&self) -> f32 { self.dpi * self.zoom as f32 }
+    fn scale(&self) -> f32 { self.dpi * self.zoom }
     fn os_pos(&self, r: Rect) -> LogicalPosition<f64> {
-        let z = self.zoom as i32;
-        LogicalPosition::new((self.visible.x + r.x * z) as f64, (self.visible.y + r.y * z) as f64)
+        let z = self.zoom as f64;
+        LogicalPosition::new(self.visible.x as f64 + r.x as f64 * z, self.visible.y as f64 + r.y as f64 * z)
     }
-    fn os_size(&self, r: Rect) -> LogicalSize<f64> { let z = self.zoom as i32; LogicalSize::new((r.w * z).max(1) as f64, (r.h * z).max(1) as f64) }
-    fn screen_size(&mut self) { let z = self.zoom as i32; self.app.resize(self.visible.w / z, self.visible.h / z); }
+    fn os_size(&self, r: Rect) -> LogicalSize<f64> { let z = self.zoom as f64; LogicalSize::new((r.w as f64 * z).max(1.0), (r.h as f64 * z).max(1.0)) }
+    fn screen_size(&mut self) { let z = self.zoom; self.app.resize((self.visible.w as f32 / z).floor() as i32, (self.visible.h as f32 / z).floor() as i32); }
     fn to_model(&self, wid: WindowId, pos: PhysicalPosition<f64>) -> Pt {
         let s = self.scale();
         let r = self.surfs.get(&wid).map_or(rect(0, 0, 0, 0), |su| su.rect);
@@ -181,7 +182,7 @@ impl Handler {
     fn after(&mut self, el: &ActiveEventLoop) {
         if self.app.quit { el.exit(); return; }
         if self.app.wants_minimize() { hide_app(); }
-        if self.app.zoom != self.zoom { self.zoom = self.app.zoom; self.screen_size(); }
+        if (self.app.zoom - self.zoom).abs() > 0.001 { self.zoom = self.app.zoom; self.screen_size(); }
         self.sync(el);
         if self.app.take_redraw() { for su in self.surfs.values() { su.window.request_redraw(); } }
     }
@@ -205,9 +206,9 @@ impl ApplicationHandler<Job> for Handler {
             WindowEvent::RedrawRequested => { self.redraw(wid); return; }
             WindowEvent::Moved(pos) => {
                 // the OS may constrain a window (screen edges); follow it in the model
-                let z = self.zoom as i32;
-                let x = ((pos.x as f32 / self.dpi).round() as i32 - self.visible.x) / z;
-                let y = ((pos.y as f32 / self.dpi).round() as i32 - self.visible.y) / z;
+                let z = self.zoom;
+                let x = ((pos.x as f32 / self.dpi - self.visible.x as f32) / z).round() as i32;
+                let y = ((pos.y as f32 / self.dpi - self.visible.y as f32) / z).round() as i32;
                 if let Some(su) = self.surfs.get_mut(&wid) {
                     if (x - su.rect.x).abs() > 1 || (y - su.rect.y).abs() > 1 { su.rect.x = x; su.rect.y = y; self.app.surface_moved(sid, x, y); }
                 }
@@ -307,10 +308,10 @@ fn headless(cfg: Config, script: &str, out_dir: &str) {
     let tx = std::sync::Mutex::new(tx);
     let mut app = App::new(cfg, Arc::new(move |job| { let _ = tx.lock().unwrap().send(job); }), fonts.clone());
     let (mut w, mut h) = (1120i32, 832i32);
-    let mut zoom_scale = 1.0f32;
+    let mut zoom_scale = app.zoom; // honours --scale
     let mut mods = Mods::default();
     let mut cursor = pt(0, 0);
-    app.resize(w, h);
+    app.resize((w as f32 / zoom_scale) as i32, (h as f32 / zoom_scale) as i32);
     app.start();
     let text = std::fs::read_to_string(script).expect("script");
     let settle = |app: &mut App, ms: u64| {
@@ -365,7 +366,7 @@ fn headless(cfg: Config, script: &str, out_dir: &str) {
             "type" => for c in parts[1..].join(" ").chars() { app.handle(Ev::Key(app::Key::Char(c), mods)); },
             "wheel" => app.handle(Ev::Wheel(cursor, n(1) as f32, n(2) as f32)),
             "wait" => settle(&mut app, n(1) as u64),
-            "zoom" => { zoom_scale = n(1) as f32; app.zoom = n(1) as u8; app.resize((w as f32 / zoom_scale) as i32, (h as f32 / zoom_scale) as i32); }
+            "zoom" => { zoom_scale = parts[1].parse().unwrap_or(1.0); app.zoom = zoom_scale; app.resize((w as f32 / zoom_scale) as i32, (h as f32 / zoom_scale) as i32); }
             "shot" => {
                 settle(&mut app, 50);
                 let (pw, ph) = (w as u32, h as u32);

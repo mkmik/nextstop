@@ -43,7 +43,7 @@ pub enum Job {
     TermWake, TermTitle(String), TermWrite(String), TermExit,
 }
 
-pub struct Config { pub demo: Option<String>, pub home_override: Option<String>, pub config_override: Option<String> }
+pub struct Config { pub demo: Option<String>, pub home_override: Option<String>, pub config_override: Option<String>, pub scale_override: Option<f32> }
 
 /// What a modal alert does when its confirming (rightmost) button is pressed.
 #[derive(Clone, Debug)]
@@ -85,7 +85,7 @@ pub struct SurfaceInfo { pub id: SurfaceId, pub r: Rect, pub level: Level, pub t
 
 pub struct App {
     pub w: i32, pub h: i32,
-    pub zoom: u8,
+    pub zoom: f32,
     pub quit: bool,
     redraw: bool,
     minimize: bool,
@@ -140,7 +140,7 @@ impl App {
             *list = keep;
         }
         if fs::filter_existing(vec![st.windows.file_viewer.path.clone()]).is_empty() { st.windows.file_viewer.path = home.clone(); }
-        if st.scale != 2 { st.scale = 1; }
+        if !(0.5..=4.0).contains(&st.scale) { st.scale = 1.0; }
         let wr = |w: &state::WinState| rect(w.x, w.y, w.w, w.h);
         let mut wins = vec![
             Win::new(WinKind::FileViewer, wr(&st.windows.file_viewer), "File Viewer", "folder"),
@@ -161,7 +161,7 @@ impl App {
         wins[wi(WinKind::Shell)].min_w = 20 * crate::shell::CELL_W + SCROLL_W + 2 * crate::shell::PAD; wins[wi(WinKind::Shell)].min_h = 5 * crate::shell::CELL_H + 2 * crate::shell::PAD + TITLE_H + RESIZE_H;
         let a = &mut wins[wi(WinKind::Alert)];
         a.resizable = false; a.mini_btn = false; a.close_btn = false;
-        let zoom = st.scale;
+        let zoom = cfg.scale_override.filter(|z| (0.5..=4.0).contains(z)).unwrap_or(st.scale);
         let mut app = App {
             w: st.os_window.w, h: st.os_window.h, zoom, quit: false, redraw: true, minimize: false, cfg, post, fonts,
             home: home.clone(), roots, is_win, state: st, save_at: None, wins, key: None, zc: 0, menu_seq: 0, menus: vec![], alert: None,
@@ -227,7 +227,7 @@ impl App {
     pub fn save_now(&mut self) {
         self.save_at = None;
         if self.cfg.demo.is_some() { return; }
-        self.state.os_window = state::WH { w: (self.w as f32 * self.zoom as f32) as i32, h: (self.h as f32 * self.zoom as f32) as i32 };
+        self.state.os_window = state::WH { w: (self.w as f32 * self.zoom) as i32, h: (self.h as f32 * self.zoom) as i32 };
         if let Err(e) = state::save_state(&self.state) { self.log(format!("save failed: {e}")); }
     }
     pub fn tick(&mut self, now: Instant) {
@@ -256,6 +256,7 @@ impl App {
             "shelf" => self.state.shelf.join(","),
             "menus" => self.menus.iter().map(|m| format!("{}@{},{}:{:?}", m.title, m.pos.x, m.pos.y, m.kind)).collect::<Vec<_>>().join(" "),
             "key" => format!("{:?}", self.key),
+            "zoom" => format!("{}", self.zoom),
             "hscroll" => self.fv_layout().hscroll.pos.to_string(),
             "surfaces" => self.surfaces().iter().map(|s| format!("{:?}", s.id)).collect::<Vec<_>>().join(" "),
             "selection" => self.fv_deep_selection().iter().map(|e| e.path.clone()).collect::<Vec<_>>().join(","),
@@ -457,8 +458,9 @@ impl App {
             Act::Paste => (self.clipboard.is_empty(), false),
             Act::EmptyRecycler => (!cfg!(target_os = "macos"), false),
             Act::ViewBrowser => (false, true),
-            Act::Scale1 => (false, self.zoom == 1),
-            Act::Scale2 => (false, self.zoom == 2),
+            Act::Scale1 => (false, (self.zoom - 1.0).abs() < 0.01),
+            Act::Scale15 => (false, (self.zoom - 1.5).abs() < 0.01),
+            Act::Scale2 => (false, (self.zoom - 2.0).abs() < 0.01),
             Act::ShowHidden => (false, self.state.show_hidden),
             Act::Backdrop => (false, self.state.backdrop),
             Act::ShowDock => (false, self.state.dock_visible),
@@ -565,8 +567,9 @@ impl App {
             Act::SelectAll => self.fv_select_all(),
             Act::CheckDisks => self.fv_refresh(),
             Act::ViewBrowser => {}
-            Act::Scale1 => self.set_zoom(1),
-            Act::Scale2 => self.set_zoom(2),
+            Act::Scale1 => self.set_zoom(1.0),
+            Act::Scale15 => self.set_zoom(1.5),
+            Act::Scale2 => self.set_zoom(2.0),
             Act::ShowHidden => { self.state.show_hidden = !self.state.show_hidden; self.dirty(); self.fv_refresh(); }
             Act::Backdrop => { self.state.backdrop = !self.state.backdrop; self.dirty(); }
             Act::ShowDock => { self.state.dock_visible = !self.state.dock_visible; self.dirty(); self.dock_request_icons(); }
@@ -590,7 +593,7 @@ impl App {
         }
         self.redraw = true;
     }
-    fn set_zoom(&mut self, z: u8) { self.zoom = z; self.state.scale = z; self.dirty(); }
+    fn set_zoom(&mut self, z: f32) { self.zoom = z; self.state.scale = z; self.dirty(); }
 
     // ---- events -------------------------------------------------------------------------------
     pub fn handle(&mut self, ev: Ev) {

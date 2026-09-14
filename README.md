@@ -37,6 +37,10 @@ xattr -cr /Applications/ReWorkspace.app
 
 **Windows (x64, arm64)** — `ReWorkspace-portable-*.exe` is the whole program; run it from anywhere.
 
+`View ▸ Scale` offers 1×, 1.5× and 2×; any factor works from the command line, for example
+`reworkspace --scale 1.25` (0.5 to 4, not saved unless you then pick a menu item). Text and icons
+are re-rasterized at the new size, so nothing is upscaled bitmaps.
+
 State lives in one file: `~/Library/Application Support/ReWorkspace/state.json` (macOS) or
 `%APPDATA%\ReWorkspace\state.json` (Windows). Delete it to start fresh. A corrupt file is renamed
 to `state.json.bad` and defaults are used (the Console says so).

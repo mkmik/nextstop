@@ -38,7 +38,7 @@ impl Default for Windows {
 pub struct State {
     pub version: u64,
     pub os_window: WH,
-    pub scale: u8,
+    pub scale: f32,
     pub show_hidden: bool,
     pub animations: bool,
     pub backdrop: bool,
@@ -53,7 +53,7 @@ pub struct State {
 }
 impl Default for State {
     fn default() -> Self {
-        State { version: VERSION, os_window: WH { w: 1120, h: 832 }, scale: 1, show_hidden: false, animations: true, backdrop: false, dock_visible: false, miniwindows_visible: false, recycler_visible: false, menu_pos: XY { x: 0, y: 0 }, torn_menus: vec![], dock: vec![], shelf: vec![], windows: Windows::default() }
+        State { version: VERSION, os_window: WH { w: 1120, h: 832 }, scale: 1.0, show_hidden: false, animations: true, backdrop: false, dock_visible: false, miniwindows_visible: false, recycler_visible: false, menu_pos: XY { x: 0, y: 0 }, torn_menus: vec![], dock: vec![], shelf: vec![], windows: Windows::default() }
     }
 }
 
@@ -97,7 +97,7 @@ mod tests {
         fs::write(&p, r#"{"version":1,"scale":2}"#).unwrap();
         let (s, msg) = read_state(&p);
         let s = s.unwrap();
-        assert_eq!(s.scale, 2);
+        assert_eq!(s.scale, 2.0);
         assert_eq!(s.windows.file_viewer.w, 640);
         assert!(msg.is_none());
     }

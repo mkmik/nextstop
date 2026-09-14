@@ -253,14 +253,14 @@ impl Scroller {
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Act {
     None, Disabled, InfoPanel, Open, NewFolder, Duplicate, Destroy, EmptyRecycler, Copy, Paste, SelectAll, CheckDisks,
-    ViewBrowser, Scale1, Scale2, ShowHidden, Backdrop, ShowDock, ShowMiniwindows, ShowRecycler, Inspector, ConsoleWin, Mandelbrot, ShellWin, FileViewerWin, RecyclerWin, ArrangeFront, Miniaturize, CloseWin, Hide, Quit,
+    ViewBrowser, Scale1, Scale15, Scale2, ShowHidden, Backdrop, ShowDock, ShowMiniwindows, ShowRecycler, Inspector, ConsoleWin, Mandelbrot, ShellWin, FileViewerWin, RecyclerWin, ArrangeFront, Miniaturize, CloseWin, Hide, Quit,
 }
 
 pub struct ItemDef { pub label: &'static str, pub key: Option<char>, pub sub: Option<&'static [ItemDef]>, pub act: Act }
 const fn item(label: &'static str, key: Option<char>, act: Act) -> ItemDef { ItemDef { label, key, sub: None, act } }
 const fn sub(label: &'static str, sub: &'static [ItemDef]) -> ItemDef { ItemDef { label, key: None, sub: Some(sub), act: Act::None } }
 
-pub static SCALE_MENU: [ItemDef; 2] = [item("1×", None, Act::Scale1), item("2×", None, Act::Scale2)];
+pub static SCALE_MENU: [ItemDef; 3] = [item("1×", None, Act::Scale1), item("1.5×", None, Act::Scale15), item("2×", None, Act::Scale2)];
 pub static INFO_MENU: [ItemDef; 3] = [item("Info Panel…", None, Act::InfoPanel), item("Preferences…", None, Act::Disabled), item("Help…", None, Act::Disabled)];
 pub static FILE_MENU: [ItemDef; 7] = [
     item("Open", Some('o'), Act::Open), item("Open as Folder", Some('O'), Act::Disabled), item("New Folder", Some('n'), Act::NewFolder),

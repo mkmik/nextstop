@@ -32,6 +32,10 @@ The owner then asked for the 2.0 (1990) aesthetics. Measured from toastytech's 2
 - **Menus**: a pressed or open item is highlighted **white** with black text (1.0 inverted it to black). Everything else (22 px title bars, glyphs, resize grooves, left-hand scrollers) is unchanged from 1.0.
 - ▷ markers have a white interior. Dock/application/miniwindow tiles use the thinner 2.0 bevel (2 px white, 1 px dark + 1 px black). The Recycler is the 2.0 recycling symbol again (an original three-arrow drawing) instead of the 1.0 black hole.
 
+## Fractional display scale (v0.4.2)
+
+- The scale is a real number (state `scale` is now a float; old integer values load fine). `--scale <factor>` overrides it for one run without saving; `View ▸ Scale` gained 1.5×. Everything is drawn through the painter's logical→device mapping, fonts via fontdue and icons via resvg at the target size, so non-integer factors are genuinely re-rendered; only the 1 px bevel lines alternate between 1 and 2 device pixels, and the 50 % dither loses its regularity, which is inherent to any non-integer factor. NeXTSTEP itself, despite Display PostScript's device independence, offered no such setting: its chrome and icons were TIFF bitmaps laid out for one point per pixel.
+
 ## Icons in the 2.0 idiom (v0.4.1)
 
 - All 48 px icons were redrawn in the style of the 2.0 stock icons: grayscale only (no accent colours), objects in shallow 3D with a lit top face and a dark side, black outlines, white highlights, 50 % dither for shading and roofs, and a dithered drop shadow to the lower right. Documents share one page shape with a folded corner. They remain original drawings; nothing was traced from NeXT bitmaps (§12).

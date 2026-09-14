@@ -6,7 +6,7 @@ pub const TITLE_H: i32 = 22;   // highlight row + 19 fill rows + dark row + blac
 pub const RESIZE_H: i32 = 8;   // dark row + white row + 6 face rows
 pub const MENU_ITEM_H: i32 = 20;
 pub const MENU_TITLE_H: i32 = 22;
-pub const SCROLL_W: i32 = 18;  // 2 px border + 16 px knob/buttons
+pub const SCROLL_W: i32 = 21;  // dark+black frame, 1 track px, 15 px knob/buttons, shadow, light edge, black edge
 pub const BTN_H: i32 = 24;
 
 // ---- glyphs -------------------------------------------------------------------------------
@@ -47,13 +47,15 @@ pub fn glyph_return(p: &mut Painter, x: i32, y: i32) {
     p.fill(rect(x + 8, y, 2, 6), BLACK); p.fill(rect(x + 2, y + 5, 8, 1), BLACK);
     for i in 0..3 { p.fill(rect(x + 2 + i, y + 5 - 3 + i, 1, 1), BLACK); p.fill(rect(x + 2 + i, y + 5 + 3 - i, 1, 1), BLACK); }
 }
-/// Sunken 6×6 "dimple" centred at (cx, cy).
-pub fn dimple(p: &mut Painter, cx: i32, cy: i32) {
-    let r = rect(cx - 3, cy - 3, 6, 6);
-    p.fill(r, LIGHT);
-    p.hline(r.x, r.y, 6, BLACK); p.vline(r.x, r.y, 6, BLACK);
-    p.hline(r.x + 1, r.y + 1, 4, DARK); p.vline(r.x + 1, r.y + 1, 4, DARK);
-    p.hline(r.x + 1, r.bottom() - 1, 5, WHITE); p.vline(r.right() - 1, r.y + 1, 5, WHITE);
+/// The round 6×6 knob dimple, pixel for pixel as on the 1.0 scroller (top-left dark, bottom-right white).
+pub fn dimple(p: &mut Painter, x: i32, y: i32) {
+    const ROWS: [&str; 6] = [".DKKK.", "DKDDDD", "KDD...", "KD..WW", "KD.WWW", ".D.WW."];
+    for (dy, row) in ROWS.iter().enumerate() {
+        for (dx, ch) in row.chars().enumerate() {
+            let c = match ch { 'D' => DARK, 'K' => BLACK, 'W' => WHITE, _ => continue };
+            p.fill(rect(x + dx as i32, y + dy as i32, 1, 1), c);
+        }
+    }
 }
 
 /// Raised push button with centred label; `default` adds the return glyph.
@@ -165,23 +167,28 @@ pub enum ScrollHit { ArrowA, ArrowB, PageBack, PageFwd, Knob }
 #[derive(Clone, Copy, Debug)]
 pub struct Scroller { pub r: Rect, pub vertical: bool, pub total: i32, pub visible: i32, pub pos: i32 }
 
+/// Geometry (vertical): col 0 dark, col 1 black, col 2 one track pixel, cols 3–17 knob/button faces,
+/// col 18 their black shadow, col 19 light edge, col 20 black edge. Rows mirror this at the top; the two
+/// 15 px arrow buttons (plus shadow row) sit at the bottom. Horizontal scrollers are the transpose.
 impl Scroller {
     pub fn max_pos(&self) -> i32 { (self.total - self.visible).max(0) }
     pub fn fits(&self) -> bool { self.total <= self.visible }
     fn len(&self) -> i32 { if self.vertical { self.r.h } else { self.r.w } }
-    fn track_len(&self) -> i32 { self.len() - 32 - 2 }
-    pub fn arrow_a(&self) -> Rect { if self.vertical { rect(self.r.x + 2, self.r.bottom() - 32, 16, 16) } else { rect(self.r.right() - 32, self.r.y + 2, 16, 16) } }
-    pub fn arrow_b(&self) -> Rect { if self.vertical { rect(self.r.x + 2, self.r.bottom() - 16, 16, 16) } else { rect(self.r.right() - 16, self.r.y + 2, 16, 16) } }
+    /// Room for the knob (face + shadow) between the top track pixel and the buttons.
+    fn track_len(&self) -> i32 { self.len() - 3 - 32 }
+    pub fn arrow_a(&self) -> Rect { if self.vertical { rect(self.r.x + 3, self.r.bottom() - 32, 15, 15) } else { rect(self.r.right() - 32, self.r.y + 3, 15, 15) } }
+    pub fn arrow_b(&self) -> Rect { if self.vertical { rect(self.r.x + 3, self.r.bottom() - 16, 15, 15) } else { rect(self.r.right() - 16, self.r.y + 3, 15, 15) } }
     fn knob_len(&self) -> i32 {
         let tl = self.track_len();
         ((tl as i64 * self.visible as i64) / self.total.max(1) as i64).max(16).min(tl as i64) as i32
     }
+    /// Knob face (its shadow is drawn outside, like every raised control).
     pub fn knob(&self) -> Option<Rect> {
         if self.fits() { return None; }
         let tl = self.track_len();
         let kl = self.knob_len();
         let off = if self.max_pos() == 0 { 0 } else { ((tl - kl) as i64 * self.pos.clamp(0, self.max_pos()) as i64 / self.max_pos() as i64) as i32 };
-        Some(if self.vertical { rect(self.r.x + 2, self.r.y + 2 + off, 16, kl) } else { rect(self.r.x + 2 + off, self.r.y + 2, kl, 16) })
+        Some(if self.vertical { rect(self.r.x + 3, self.r.y + 3 + off, 15, kl - 1) } else { rect(self.r.x + 3 + off, self.r.y + 3, kl - 1, 15) })
     }
     pub fn drag_pos(&self, start_pos: i32, delta: i32) -> i32 {
         let free = self.track_len() - self.knob_len();
@@ -198,25 +205,32 @@ impl Scroller {
         Some(if before { ScrollHit::PageBack } else { ScrollHit::PageFwd })
     }
     pub fn draw(&self, p: &mut Painter, pressed: Option<ScrollHit>) {
-        let track = if self.vertical { rect(self.r.x, self.r.y, self.r.w, self.r.h - 32) } else { rect(self.r.x, self.r.y, self.r.w - 32, self.r.h) };
-        p.dither(track);
-        p.hline(track.x, track.y, track.w, DARK); p.hline(track.x, track.y + 1, track.w, BLACK);
-        p.vline(track.x, track.y, track.h, DARK); p.vline(track.x + 1, track.y, track.h, BLACK);
+        let r = self.r;
+        if self.vertical {
+            p.dither(rect(r.x + 2, r.y + 2, 17, r.h - 2));
+            p.hline(r.x, r.y, r.w, DARK); p.hline(r.x + 1, r.y + 1, r.w - 1, BLACK);
+            p.vline(r.x, r.y, r.h, DARK); p.vline(r.x + 1, r.y + 1, r.h - 1, BLACK);
+            p.vline(r.x + 19, r.y + 2, r.h - 2, LIGHT); p.vline(r.x + 20, r.y, r.h, BLACK);
+        } else {
+            p.dither(rect(r.x + 2, r.y + 2, r.w - 2, 17));
+            p.vline(r.x, r.y, r.h, DARK); p.vline(r.x + 1, r.y + 1, r.h - 1, BLACK);
+            p.hline(r.x, r.y, r.w, DARK); p.hline(r.x + 1, r.y + 1, r.w - 1, BLACK);
+            p.hline(r.x + 2, r.y + 19, r.w - 2, LIGHT); p.hline(r.x, r.y + 20, r.w, BLACK);
+        }
         let disabled = self.fits();
         let col = if disabled { DARK } else { BLACK };
-        for (r, hit, which) in [(self.arrow_a(), ScrollHit::ArrowA, 0), (self.arrow_b(), ScrollHit::ArrowB, 1)] {
-            if pressed == Some(hit) && !disabled { p.pressed(r) } else { p.raised(r) }
+        for (b, hit, which) in [(self.arrow_a(), ScrollHit::ArrowA, 0), (self.arrow_b(), ScrollHit::ArrowB, 1)] {
+            if pressed == Some(hit) && !disabled { p.pressed(b) } else { p.raised(b) }
             match (self.vertical, which) {
-                (true, 0) => tri_up(p, r.x + 4, r.y + 4, 7, col),
-                (true, _) => tri_down(p, r.x + 4, r.y + 5, 7, col),
-                (false, 0) => tri_left(p, r.x + 4, r.y + 4, 7, col),
-                (false, _) => tri_right(p, r.x + 5, r.y + 4, 7, col),
+                (true, 0) => tri_up(p, b.x + 4, b.y + 4, 7, col),
+                (true, _) => tri_down(p, b.x + 4, b.y + 5, 7, col),
+                (false, 0) => tri_left(p, b.x + 4, b.y + 4, 7, col),
+                (false, _) => tri_right(p, b.x + 5, b.y + 4, 7, col),
             }
         }
         if let Some(k) = self.knob() {
             p.raised(k);
-            let c = k.center();
-            dimple(p, c.x, c.y);
+            dimple(p, k.x + (k.w - 6) / 2, k.y + (k.h - 6) / 2);
         }
     }
 }

@@ -28,7 +28,7 @@ impl Default for Windows {
             console: WinState { x: 200, y: 500, w: 480, h: 240, open: false, path: String::new() },
             recycler: WinState { x: 300, y: 300, w: 320, h: 240, open: false, path: String::new() },
             mandelbrot: WinState { x: 200, y: 80, w: 520, h: 528, open: false, path: String::new() },
-            shell: WinState { x: 160, y: 120, w: 588, h: 374, open: false, path: String::new() },
+            shell: WinState { x: 160, y: 120, w: 591, h: 374, open: false, path: String::new() },
         }
     }
 }

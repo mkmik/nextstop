@@ -124,6 +124,7 @@ pub struct Painter<'a> {
     clip: Vec<Rect>, // device-space clip rects
     pub fonts: &'a Fonts,
     pub icons: &'a Icons,
+    ox: i32, oy: i32, // logical origin of this surface (Screen coordinates of its top-left)
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -132,14 +133,18 @@ pub enum Align { Left, Center }
 impl<'a> Painter<'a> {
     pub fn new(fb: Frame<'a>, s: f32, fonts: &'a Fonts, icons: &'a Icons) -> Painter<'a> {
         let clip = vec![rect(0, 0, fb.w as i32, fb.h as i32)];
-        Painter { fb, s, clip, fonts, icons }
+        Painter { fb, s, clip, fonts, icons, ox: 0, oy: 0 }
     }
+    /// Draw Screen-coordinate content into a surface whose top-left is at logical (ox, oy).
+    pub fn set_origin(&mut self, ox: i32, oy: i32) { self.ox = ox; self.oy = oy; }
     /// Device-pixel size for a logical font size.
     pub fn px(&self, logical: i32) -> u32 { (logical as f32 * self.s).round().max(1.0) as u32 }
     fn d(&self, v: i32) -> i32 { (v as f32 * self.s).round() as i32 }
+    fn dx(&self, x: i32) -> i32 { ((x - self.ox) as f32 * self.s).round() as i32 }
+    fn dy(&self, y: i32) -> i32 { ((y - self.oy) as f32 * self.s).round() as i32 }
     fn dev(&self, r: Rect) -> Rect {
-        let x0 = self.d(r.x); let y0 = self.d(r.y);
-        rect(x0, y0, self.d(r.right()) - x0, self.d(r.bottom()) - y0)
+        let x0 = self.dx(r.x); let y0 = self.dy(r.y);
+        rect(x0, y0, self.dx(r.right()) - x0, self.dy(r.bottom()) - y0)
     }
     pub fn push_clip(&mut self, r: Rect) { let c = self.dev(r).intersect(*self.clip.last().unwrap()); self.clip.push(c); }
     pub fn pop_clip(&mut self) { if self.clip.len() > 1 { self.clip.pop(); } }
@@ -185,7 +190,7 @@ impl<'a> Painter<'a> {
     /// Blend a premultiplied image at logical (x, y); it is drawn at its own device size, scaled to `w`×`h` logical if given.
     pub fn image(&mut self, img: &Image, x: i32, y: i32, size: Option<(i32, i32)>, opacity: u8) {
         let (dw, dh) = match size { Some((w, h)) => (self.d(w), self.d(h)), None => (img.w as i32, img.h as i32) };
-        let dst = rect(self.d(x), self.d(y), dw, dh);
+        let dst = rect(self.dx(x), self.dy(y), dw, dh);
         let vis = dst.intersect(self.clipd());
         if vis.is_empty() || img.w == 0 || img.h == 0 { return; }
         let fw = self.fb.w as usize;
@@ -217,8 +222,8 @@ impl<'a> Painter<'a> {
     /// Draw `text` with its baseline at logical `y_base`. Returns the advance in logical px.
     pub fn text(&mut self, font: FontId, size: i32, x: i32, y_base: i32, text: &str, color: u32) -> i32 {
         let px = self.px(size);
-        let mut pen = self.d(x) as f32;
-        let base = self.d(y_base);
+        let mut pen = self.dx(x) as f32;
+        let base = self.dy(y_base);
         let clip = self.clipd();
         let fw = self.fb.w as usize;
         let (cr, cg, cb) = ((color >> 16) & 255, (color >> 8) & 255, color & 255);
@@ -245,7 +250,7 @@ impl<'a> Painter<'a> {
             }
             pen += m.advance_width;
         }
-        ((pen - self.d(x) as f32) / self.s).round() as i32
+        ((pen - self.dx(x) as f32) / self.s).round() as i32
     }
     /// Baseline (logical) that vertically centers `size` text in a box starting at `y` with height `h`.
     pub fn baseline(&self, font: FontId, size: i32, y: i32, h: i32) -> i32 {

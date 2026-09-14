@@ -49,10 +49,8 @@ impl App {
         for w in &self.wins { if let Some(slot) = w.mini { if miniwindow_rect(slot, self.h).contains(p) { return Some(Btn::Miniwin(w.kind)); } } }
         None
     }
-    pub fn draw_tiles(&self, p: &mut Painter) {
+    pub fn draw_dock(&self, p: &mut Painter) {
         let pressed = self.pressed();
-        let strip = self.dock_strip();
-        p.push_clip(strip);
         let ws = self.tile_rect(TileId::Workspace);
         tile(p, ws, pressed == Some(Btn::Tile(TileId::Workspace)));
         p.icon("workspace", ws.x + 8, ws.y + 8, 48);
@@ -62,16 +60,16 @@ impl App {
             self.draw_app_tile(p, i, app, self.tile_rect(TileId::App(i)), pressed);
         }
         if let Some(i) = drag_idx { if let Some(app) = self.state.dock.get(i) { let r = self.tile_rect(TileId::App(i)); self.draw_app_tile(p, i, app, r.at(dx, dy), pressed); } }
-        p.pop_clip();
-        // dragging a tile sideways: draw it outside the strip too
-        if let Some(i) = drag_idx { if dx.abs() > 0 { if let Some(app) = self.state.dock.get(i) { let r = self.tile_rect(TileId::App(i)).at(dx, dy); if !strip.contains(r.center()) { self.draw_app_tile(p, i, app, r, pressed); } } } }
+    }
+    pub fn draw_recycler_tile(&self, p: &mut Painter) {
         let rc = self.tile_rect(TileId::Recycler);
-        tile(p, rc, pressed == Some(Btn::Tile(TileId::Recycler)));
+        tile(p, rc, self.pressed() == Some(Btn::Tile(TileId::Recycler)));
         p.icon(if self.dock.trash_empty { "recycler-empty" } else { "recycler-full" }, rc.x + 8, rc.y + 8, 48);
+    }
+    pub fn draw_apptile(&self, p: &mut Painter) {
         let at = self.apptile_rect();
         tile_bevel(p, at);
         p.icon("workspace", at.x + 8, at.y + 8, 48);
-        for w in &self.wins { if let Some(slot) = w.mini { draw_miniwindow(p, miniwindow_rect(slot, self.h), w.icon, &w.title); } }
     }
     fn draw_app_tile(&self, p: &mut Painter, i: usize, app: &str, r: Rect, pressed: Option<Btn>) {
         let down = pressed == Some(Btn::Tile(TileId::App(i))) || self.dock.pressed_until.is_some_and(|(j, _)| j == i);

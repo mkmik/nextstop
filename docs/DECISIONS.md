@@ -11,6 +11,15 @@ One line per deviation, with the reason.
 - macOS packaging is `scripts/bundle-macos.sh` (plain `.app` + `hdiutil` DMG, ad-hoc codesign); Windows ships the bare `reworkspace.exe`, which is fully portable (no WebView2 needed any more). The optional NSIS installer and an embedded `.exe` icon were not done.
 - Miniaturize animation shrinks a gray window outline (120 ms) instead of scaling the live window contents.
 
+## Real windows instead of one container (v0.3)
+
+- The owner asked for the app to work without being contained in another window. Every Screen element is now its own **undecorated OS window** (winit `with_decorations(false)`, no shadow): File Viewer, Inspector, Console, Recycler, Info, alerts, each open menu, the Dock column, the Recycler tile, the application tile and every miniwindow. The model still lives in one Screen coordinate system whose origin is the top-left of the primary display's *visible frame* (menu bar and macOS Dock excluded, via `NSScreen.visibleFrame`); each window paints its part of the Screen through the same painter with a shifted origin.
+- Window levels: menus, Dock, tiles, miniwindows, alerts and the drag ghost are always-on-top (like NeXT's floating menu and Dock); NeXT windows are normal-level and interleave with other apps' windows; the optional dark **Screen Backdrop** (`View ▸ Screen Backdrop`, default off) is an always-on-bottom window covering the visible frame. Right-click popups therefore only exist with the backdrop on.
+- Focus: clicking any of our windows raises it in the model before hit-testing so OS and model z-orders agree; the key window follows OS focus. When no window of ours has focus (the app was deactivated), attached submenus close, as NeXT did.
+- The miniaturize animation was dropped (there is no container to animate across); `--no-anim` was removed. `Hide` hides the whole application (`NSApplication.hide`), the macOS Dock icon brings it back. The `os_window` state field is kept for compatibility but unused.
+- The drag image is an opaque 48×48 tile (softbuffer windows have no alpha on macOS) instead of a 50 % translucent icon.
+- Headless mode composites all surfaces into one frame, so scripts and screenshots are unchanged.
+
 ## NeXTSTEP 1.0 chrome (v0.2.1)
 
 The owner asked for the look of the *first* NeXTSTEP release. Pixel geometry was measured from

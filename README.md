@@ -4,10 +4,13 @@ A native, single-binary recreation of the **look** of the first NeXTSTEP release
 Workspace Manager, vertical menus, Dock, black-hole Recycler — running as an ordinary window on
 macOS and Windows, in the spirit of [ReProgman](https://github.com/mayuki/ReProgman).
 
-It is written in Rust and draws every pixel itself (no webview, no GPU, no UI toolkit): a
-`winit` window, a `softbuffer` framebuffer, bevels and text from our own painter. It is not a
-picture: the File Viewer browses your real disk, double-click opens files with the host OS, the
-Dock launches real applications, and dragging a file to the Recycler moves it to the system trash.
+It is written in Rust and draws every pixel itself (no webview, no GPU, no UI toolkit). There is
+no container window: the File Viewer, Inspector, menus, Dock tiles and Recycler are real
+undecorated windows on your desktop, painted by our own software renderer, so they sit among
+your other applications. It is not a picture: the File Viewer browses your real disk, double-click
+opens files with the host OS, the Dock launches real applications, and dragging a file to the
+Recycler moves it to the system trash. `View ▸ Screen Backdrop` adds the dark NeXT screen behind
+everything if you want the full illusion.
 
 ![ReWorkspace at 1×](docs/screenshots/screen-1x.png)
 
@@ -48,8 +51,7 @@ to `state.json.bad` and defaults are used (the Console says so).
 - Recycler: drop to trash, contents window, `File ▸ Empty Recycler` (always confirms).
 - Menus: full Workspace menu tree, submenus, tear-off menus that persist, key equivalents
   (Cmd on macOS, Ctrl on Windows), right-click main menu on the background.
-- Persistence of window, menu, Dock, Shelf and scale settings; `--no-anim` disables the
-  miniaturize animation.
+- Persistence of window, menu, Dock, Shelf, backdrop and scale settings.
 
 ## Known limitations
 
@@ -62,6 +64,7 @@ to `state.json.bad` and defaults are used (the Console says so).
 - Windows app icons are extracted at 32 px and scaled; the Windows build has no embedded exe icon
   and no installer.
 - Browser view only (no Icon or Listing view), no Preferences, no search. Inspector images: PNG only.
+- Without the backdrop there is no right-click main menu (nothing of ours to click on the desktop).
 
 ## Development
 

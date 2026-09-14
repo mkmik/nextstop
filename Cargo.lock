@@ -1413,11 +1413,13 @@ dependencies = [
 
 [[package]]
 name = "reworkspace"
-version = "0.2.1"
+version = "0.3.0"
 dependencies = [
  "dirs",
  "fontdue",
  "libc",
+ "objc2-app-kit",
+ "objc2-foundation 0.2.2",
  "png",
  "resvg",
  "serde",

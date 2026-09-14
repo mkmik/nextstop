@@ -39,7 +39,7 @@ pub enum Job {
     NewFolder(Result<String, String>),
 }
 
-pub struct Config { pub no_anim: bool, pub demo: Option<String>, pub home_override: Option<String>, pub config_override: Option<String> }
+pub struct Config { pub demo: Option<String>, pub home_override: Option<String>, pub config_override: Option<String> }
 
 /// What a modal alert does when its confirming (rightmost) button is pressed.
 #[derive(Clone, Debug)]
@@ -71,7 +71,12 @@ pub enum Capture {
     TilePress { idx: usize, start: Pt, dx: i32, dy: i32 },
 }
 
-pub struct Anim { pub k: WinKind, pub from: Rect, pub to: Rect, pub start: Instant, pub restore: bool }
+/// One real OS window in multi-window mode (or one layer of the headless composite).
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+pub enum SurfaceId { Backdrop, Win(WinKind), Menu(u64), Dock, Recycler, AppTile, Miniwin(WinKind), Ghost }
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Level { Bottom, Normal, Top }
+pub struct SurfaceInfo { pub id: SurfaceId, pub r: Rect, pub level: Level, pub title: String }
 
 pub struct App {
     pub w: i32, pub h: i32,
@@ -88,7 +93,7 @@ pub struct App {
     pub wins: Vec<Win>,
     pub key: Option<WinKind>,
     zc: u32,
-    pub anim: Option<Anim>,
+    menu_seq: u64,
     pub menus: Vec<MenuInst>,
     pub alert: Option<Alert>,
     pub fv: FileViewer, pub insp: Inspector, pub dock: Dock, pub rec: RecWin,
@@ -150,7 +155,7 @@ impl App {
         let zoom = st.scale;
         let mut app = App {
             w: st.os_window.w, h: st.os_window.h, zoom, quit: false, redraw: true, minimize: false, cfg, post, fonts,
-            home: home.clone(), roots, is_win, state: st, save_at: None, wins, key: None, zc: 0, anim: None, menus: vec![], alert: None,
+            home: home.clone(), roots, is_win, state: st, save_at: None, wins, key: None, zc: 0, menu_seq: 0, menus: vec![], alert: None,
             fv: FileViewer::default(), insp: Inspector::default(), dock: Dock::default(), rec: RecWin::default(),
             console, console_scroll: 0, console_stick: true, capture: None, mouse: pt(0, 0), focused: true,
             refresh_at: Instant::now() + Duration::from_secs(5), clipboard: vec![], now: Instant::now(),
@@ -159,7 +164,6 @@ impl App {
         app
     }
 
-    pub fn initial_window_size(&self) -> (i32, i32) { (self.state.os_window.w, self.state.os_window.h) }
 
     /// Called once the window exists (or the headless harness is set up).
     pub fn start(&mut self) {
@@ -182,7 +186,6 @@ impl App {
         for win in &mut self.wins { win.clamp(w, h); }
         self.redraw = true;
     }
-    pub fn request_redraw(&mut self) { self.redraw = true; }
     pub fn take_redraw(&mut self) -> bool { std::mem::take(&mut self.redraw) }
     pub fn wants_minimize(&mut self) -> bool { std::mem::take(&mut self.minimize) }
     pub fn cursor_kind(&self) -> usize {
@@ -225,10 +228,6 @@ impl App {
         }
         if self.fv.type_until.is_some_and(|t| now >= t) { self.fv.type_until = None; self.fv.typeahead.clear(); }
         if self.dock.pressed_until.is_some_and(|(_, t)| now >= t) { self.dock.pressed_until = None; self.redraw = true; }
-        if let Some(a) = &self.anim {
-            self.redraw = true;
-            if now >= a.start + Duration::from_millis(120) { let a = self.anim.take().unwrap(); self.finish_anim(a); }
-        }
     }
     pub fn next_deadline(&self) -> Option<Instant> {
         let mut t: Option<Instant> = None;
@@ -237,7 +236,6 @@ impl App {
         add(Some(self.refresh_at));
         add(self.fv.type_until);
         add(self.dock.pressed_until.map(|(_, t)| t));
-        if self.anim.is_some() { add(Some(self.now + Duration::from_millis(16))); }
         t
     }
     pub fn debug_query(&self, q: &str) -> String {
@@ -304,25 +302,35 @@ impl App {
     pub fn miniaturize(&mut self, k: WinKind) {
         if self.win(k).mini.is_some() || !self.win(k).visible || k == WinKind::Alert { return; }
         let slot = self.wins.iter().filter(|w| w.mini.is_some()).count();
-        let to = miniwindow_rect(slot, self.h);
-        let from = self.win(k).r;
         self.win_mut(k).mini = Some(slot);
         self.drop_key(k);
-        if self.state.animations && !self.cfg.no_anim { self.anim = Some(Anim { k, from, to, start: self.now, restore: false }); }
         self.redraw = true;
     }
     pub fn restore(&mut self, k: WinKind) {
-        let Some(slot) = self.win(k).mini else { return };
-        let from = miniwindow_rect(slot, self.h);
+        if self.win(k).mini.is_none() { return; }
         self.win_mut(k).mini = None;
         // re-pack remaining miniwindows
         let mut n = 0;
         for w in &mut self.wins { if w.mini.is_some() { w.mini = Some(n); n += 1; } }
-        if self.state.animations && !self.cfg.no_anim { let to = self.win(k).r; self.anim = Some(Anim { k, from, to, start: self.now, restore: true }); }
         self.make_key(k);
         self.redraw = true;
     }
-    fn finish_anim(&mut self, _a: Anim) { self.redraw = true; }
+    /// The OS raised this window (clicked); keep the model's z-order in step before hit-testing.
+    pub fn raise(&mut self, k: WinKind) { if self.win(k).shown() { self.front(k); } }
+    /// The OS moved a surface (constrained to the visible area, etc.): follow it in the model.
+    pub fn surface_moved(&mut self, id: SurfaceId, x: i32, y: i32) {
+        match id {
+            SurfaceId::Win(k) => { let w = self.win_mut(k); if w.r.x != x + 1 || w.r.y != y + 1 { w.r.x = x + 1; w.r.y = y + 1; self.sync_win_state(k); } }
+            SurfaceId::Menu(mid) => {
+                if let Some(i) = self.menus.iter().position(|m| m.id == mid) {
+                    if self.menus[i].pos != pt(x, y) { self.menus[i].pos = pt(x, y); self.reattach(i); self.menu_moved(i); }
+                }
+            }
+            _ => {}
+        }
+    }
+    pub fn has_open_menus(&self) -> bool { self.menus.iter().any(|m| !matches!(m.kind, MenuKind::Main | MenuKind::Torn) || m.open_item.is_some()) }
+    pub fn close_open_menus(&mut self) { self.close_submenus(); }
     /// Topmost shown window under `p` (alert excluded unless open).
     pub fn win_hit(&self, p: Pt) -> Option<(WinKind, WinPart)> {
         let mut best: Option<&Win> = None;
@@ -411,15 +419,18 @@ impl App {
     // ---- menus (§7.3) -------------------------------------------------------------------------
     fn build_menus(&mut self) {
         let w = MenuInst::width(&self.fonts, &MAIN_MENU, "Workspace");
-        self.menus.push(MenuInst { title: "Workspace".into(), items: &MAIN_MENU, path: vec![], pos: pt(self.state.menu_pos.x, self.state.menu_pos.y), w, kind: MenuKind::Main, open_item: None });
+        let id = self.next_menu_id();
+        self.menus.push(MenuInst { id, title: "Workspace".into(), items: &MAIN_MENU, path: vec![], pos: pt(self.state.menu_pos.x, self.state.menu_pos.y), w, kind: MenuKind::Main, open_item: None });
         for t in self.state.torn_menus.clone() {
             if let Some(items) = resolve_path(&t.path) {
                 let title = t.path.last().cloned().unwrap_or_default();
                 let w = MenuInst::width(&self.fonts, items, &title);
-                self.menus.push(MenuInst { title, items, path: t.path.clone(), pos: pt(t.x, t.y), w, kind: MenuKind::Torn, open_item: None });
+                let id = self.next_menu_id();
+                self.menus.push(MenuInst { id, title, items, path: t.path.clone(), pos: pt(t.x, t.y), w, kind: MenuKind::Torn, open_item: None });
             }
         }
     }
+    fn next_menu_id(&mut self) -> u64 { self.menu_seq += 1; self.menu_seq }
     pub fn item_state(&self, it: &ItemDef) -> (bool, bool) {
         match it.act {
             Act::Disabled => (true, false),
@@ -429,6 +440,7 @@ impl App {
             Act::Scale1 => (false, self.zoom == 1),
             Act::Scale2 => (false, self.zoom == 2),
             Act::ShowHidden => (false, self.state.show_hidden),
+            Act::Backdrop => (false, self.state.backdrop),
             _ => (false, false),
         }
     }
@@ -461,10 +473,8 @@ impl App {
         let title = it.label.to_string();
         let w = MenuInst::width(&self.fonts, items, &title);
         self.menus[m].open_item = Some(item);
-        let popup = self.menus[m].kind == MenuKind::Popup;
-        let mut sub = MenuInst { title, items, path, pos: pt(0, 0), w, kind: MenuKind::Sub { parent: m, item }, open_item: None };
-        if popup { sub.kind = MenuKind::Sub { parent: m, item }; }
-        self.menus.push(sub);
+        let id = self.next_menu_id();
+        self.menus.push(MenuInst { id, title, items, path, pos: pt(0, 0), w, kind: MenuKind::Sub { parent: m, item }, open_item: None });
         let i = self.menus.len() - 1;
         self.reattach(i);
     }
@@ -506,7 +516,8 @@ impl App {
     fn popup_menu(&mut self, p: Pt) {
         self.close_submenus();
         let w = MenuInst::width(&self.fonts, &MAIN_MENU, "Workspace");
-        self.menus.push(MenuInst { title: "Workspace".into(), items: &MAIN_MENU, path: vec![], pos: p, w, kind: MenuKind::Popup, open_item: None });
+        let id = self.next_menu_id();
+        self.menus.push(MenuInst { id, title: "Workspace".into(), items: &MAIN_MENU, path: vec![], pos: p, w, kind: MenuKind::Popup, open_item: None });
     }
     /// Topmost menu part under `p`.
     fn menu_hit(&self, p: Pt) -> Option<(usize, MenuPart)> {
@@ -534,6 +545,7 @@ impl App {
             Act::Scale1 => self.set_zoom(1),
             Act::Scale2 => self.set_zoom(2),
             Act::ShowHidden => { self.state.show_hidden = !self.state.show_hidden; self.dirty(); self.fv_refresh(); }
+            Act::Backdrop => { self.state.backdrop = !self.state.backdrop; self.dirty(); }
             Act::Inspector => self.show_win(WinKind::Inspector),
             Act::ConsoleWin => self.show_win(WinKind::Console),
             Act::FileViewerWin => self.show_win(WinKind::FileViewer),
@@ -856,44 +868,67 @@ impl App {
     }
 
     // ---- drawing ---------------------------------------------------------------------------------
+    /// Every surface, back to front. In multi-window mode each becomes an OS window; headless draws them in order.
+    pub fn surfaces(&self) -> Vec<SurfaceInfo> {
+        let mut v = vec![];
+        if self.cfg.demo.is_some() { return v; }
+        let sf = |id: SurfaceId, r: Rect, level: Level, title: &str| SurfaceInfo { id, r, level, title: title.to_string() };
+        if self.state.backdrop { v.push(sf(SurfaceId::Backdrop, rect(0, 0, self.w, self.h), Level::Bottom, "ReWorkspace")); }
+        let mut order: Vec<&Win> = self.wins.iter().filter(|w| w.shown() && w.kind != WinKind::Alert).collect();
+        order.sort_by_key(|w| w.z);
+        for w in order { v.push(sf(SurfaceId::Win(w.kind), rect(w.r.x - 1, w.r.y - 1, w.r.w + 2, w.r.h + 2), Level::Normal, &w.title)); }
+        let n = 1 + self.state.dock.len().min(12) as i32;
+        v.push(sf(SurfaceId::Dock, rect(self.w - 67, 0, 64, 64 * n), Level::Top, "Dock"));
+        v.push(sf(SurfaceId::Recycler, self.tile_rect(TileId::Recycler), Level::Top, "Recycler"));
+        v.push(sf(SurfaceId::AppTile, rect(0, self.h - 64, 64, 64), Level::Top, "Workspace"));
+        for w in &self.wins { if let Some(slot) = w.mini { v.push(sf(SurfaceId::Miniwin(w.kind), miniwindow_rect(slot, self.h), Level::Top, &w.title)); } }
+        for m in &self.menus { let r = m.rect(); v.push(sf(SurfaceId::Menu(m.id), rect(r.x, r.y, r.w + 1, r.h + 1), Level::Top, &m.title)); }
+        if self.alert.is_some() { let r = self.win(WinKind::Alert).r; v.push(sf(SurfaceId::Win(WinKind::Alert), rect(r.x - 1, r.y - 1, r.w + 2, r.h + 2), Level::Top, "Alert")); }
+        if self.dragging().is_some() { v.push(sf(SurfaceId::Ghost, rect(self.mouse.x - 24, self.mouse.y - 24, 48, 48), Level::Top, "")); }
+        v
+    }
+    /// Draw one surface; the painter's origin is at the surface's top-left (Screen coordinates).
+    pub fn draw_surface(&self, id: SurfaceId, p: &mut Painter) {
+        let pressed = self.pressed();
+        match id {
+            SurfaceId::Backdrop => p.fill(rect(0, 0, self.w, self.h), DARK),
+            SurfaceId::Win(k) => self.draw_win(p, wi(k)),
+            SurfaceId::Menu(mid) => {
+                if let Some((i, m)) = self.menus.iter().enumerate().find(|(_, m)| m.id == mid) {
+                    let hi = match pressed { Some(Btn::MenuItem(mm, ii)) if mm == i => Some(ii), _ => None };
+                    let st = |it: &ItemDef| self.item_state(it);
+                    m.draw(p, hi, pressed == Some(Btn::MenuClose(i)), &st);
+                }
+            }
+            SurfaceId::Dock => self.draw_dock(p),
+            SurfaceId::Recycler => self.draw_recycler_tile(p),
+            SurfaceId::AppTile => self.draw_apptile(p),
+            SurfaceId::Miniwin(k) => { let w = self.win(k); if let Some(slot) = w.mini { draw_miniwindow(p, miniwindow_rect(slot, self.h), w.icon, &w.title); } }
+            SurfaceId::Ghost => {
+                if let Some((paths, icon)) = self.dragging() {
+                    let r = rect(self.mouse.x - 24, self.mouse.y - 24, 48, 48);
+                    p.fill(r, LIGHT); p.outline(r, BLACK);
+                    p.icon(icon, r.x, r.y, 48);
+                    if paths.len() > 1 {
+                        let t = format!("+{}", paths.len() - 1);
+                        let w = p.text_width(FontId::Regular, 10, &t) + 6;
+                        let br = rect(r.right() - w, r.bottom() - 12, w, 12);
+                        p.fill(br, BLACK);
+                        p.text_in(FontId::Regular, 10, br, Align::Center, &t, WHITE);
+                    }
+                }
+            }
+        }
+    }
+    /// Headless composite: the whole Screen in one frame.
     pub fn draw(&self, p: &mut Painter) {
         p.fill(rect(0, 0, self.w, self.h), DARK);
         if self.cfg.demo.as_deref() == Some("chrome") { crate::demo::draw_demo_chrome(self, p); return; }
-        let mut order: Vec<usize> = (0..self.wins.len()).filter(|&i| self.wins[i].shown() && self.wins[i].kind != WinKind::Alert).collect();
-        order.sort_by_key(|&i| self.wins[i].z);
-        for i in order { self.draw_win(p, i); }
-        if let Some(a) = &self.anim {
-            let t = (self.now.duration_since(a.start).as_millis() as f32 / 120.0).clamp(0.0, 1.0);
-            let lerp = |a: i32, b: i32| a + ((b - a) as f32 * t).round() as i32;
-            let r = rect(lerp(a.from.x, a.to.x), lerp(a.from.y, a.to.y), lerp(a.from.w, a.to.w), lerp(a.from.h, a.to.h));
-            p.fill(r, LIGHT); p.outline(r, BLACK); p.fill(rect(r.x, r.y, r.w, (TITLE_H as f32 * (r.h as f32 / a.from.h.max(1) as f32)).max(2.0) as i32), if a.restore { BLACK } else { DARK });
-        }
-        self.draw_tiles(p);
-        let pressed = self.pressed();
-        for (i, m) in self.menus.iter().enumerate() {
-            let hi = match pressed { Some(Btn::MenuItem(mm, ii)) if mm == i => Some(ii), _ => None };
-            let st = |it: &ItemDef| self.item_state(it);
-            m.draw(p, hi, pressed == Some(Btn::MenuClose(i)), &st);
-        }
-        if self.alert.is_some() { self.draw_win(p, wi(WinKind::Alert)); }
-        if let Some((paths, icon)) = self.dragging() {
-            let (x, y) = (self.mouse.x - 24, self.mouse.y - 24);
-            let img = p.icons.get(icon, p.px(48));
-            p.image(&img, x, y, Some((48, 48)), 128);
-            if paths.len() > 1 {
-                let t = format!("+{}", paths.len() - 1);
-                let w = p.text_width(FontId::Regular, 10, &t) + 6;
-                let br = rect(x + 48 - w + 6, y + 42, w, 12);
-                p.fill(br, BLACK);
-                p.text_in(FontId::Regular, 10, br, Align::Center, &t, WHITE);
-            }
-        }
+        for sf in self.surfaces() { if sf.id != SurfaceId::Backdrop { self.draw_surface(sf.id, p); } }
     }
     fn draw_win(&self, p: &mut Painter, i: usize) {
         let w = &self.wins[i];
         let pressed = match self.pressed() { Some(Btn::WinMini(k)) if k == w.kind => Some(WinPart::MiniBtn), Some(Btn::WinClose(k)) if k == w.kind => Some(WinPart::CloseBtn), _ => None };
-        // a miniaturizing window is hidden while its animation runs
-        if self.anim.as_ref().is_some_and(|a| a.k == w.kind) && w.kind != WinKind::Alert { return; }
         w.draw_chrome(p, self.key == Some(w.kind), pressed);
         let c = w.content();
         p.push_clip(c);

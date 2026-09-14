@@ -1,6 +1,6 @@
 [package]
 name = "reworkspace"
-version = "0.2.1"
+version = "0.3.0"
 edition = "2021"
 rust-version = "1.85"
 description = "A NeXTSTEP-style workspace, natively rendered"
@@ -19,6 +19,10 @@ trash = "5"
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2-app-kit = { version = "0.2", features = ["NSScreen", "NSApplication", "NSResponder", "NSGraphics"] }
+objc2-foundation = { version = "0.2", features = ["NSArray", "NSGeometry", "NSThread"] }
 
 [profile.release]
 opt-level = 3

@@ -933,7 +933,7 @@ impl App {
         if self.state.miniwindows_visible {
             for w in &self.wins { if let Some(slot) = w.mini { v.push(sf(SurfaceId::Miniwin(w.kind), miniwindow_rect(slot, self.h), Level::Top, &w.title)); } }
         }
-        for m in &self.menus { let r = m.rect(); v.push(sf(SurfaceId::Menu(m.id), rect(r.x, r.y, r.w + 1, r.h + 1), Level::Top, &m.title)); }
+        for m in &self.menus { let r = m.rect(); v.push(sf(SurfaceId::Menu(m.id), rect(r.x, r.y, r.w + 1, r.h), Level::Top, &m.title)); }
         if self.alert.is_some() { let r = self.win(WinKind::Alert).r; v.push(sf(SurfaceId::Win(WinKind::Alert), rect(r.x - 1, r.y - 1, r.w + 2, r.h + 2), Level::Top, "Alert")); }
         if self.dragging().is_some() { v.push(sf(SurfaceId::Ghost, rect(self.mouse.x - 24, self.mouse.y - 24, 48, 48), Level::Top, "")); }
         v

@@ -317,7 +317,7 @@ impl MenuInst {
         w.max(93)
     }
     pub fn height(&self) -> i32 { MENU_TITLE_H + self.items.len() as i32 * MENU_ITEM_H }
-    /// Face rectangle (the black shadow column/row lies just outside it).
+    /// Face rectangle (the black shadow column lies just outside it, on the right).
     pub fn rect(&self) -> Rect { rect(self.pos.x, self.pos.y, self.w, self.height()) }
     pub fn title_rect(&self) -> Rect { rect(self.pos.x, self.pos.y, self.w, MENU_TITLE_H) }
     pub fn close_rect(&self) -> Option<Rect> { (self.kind == MenuKind::Torn).then(|| rect(self.pos.x + self.w - 17, self.pos.y + 3, 14, 14)) }
@@ -331,14 +331,12 @@ impl MenuInst {
 
     pub fn draw(&self, p: &mut Painter, hi: Option<usize>, close_pressed: bool, state: &dyn Fn(&ItemDef) -> (bool, bool)) {
         let r = self.rect();
-        // black shadow along the right and bottom of the whole menu
-        p.vline(r.right(), r.y, r.h + 1, BLACK);
-        p.hline(r.x, r.bottom(), r.w + 1, BLACK);
+        // the only drop shadow is one black column on the right; the bottom ends with the last cell's black row (2.0 shots)
+        p.vline(r.right(), r.y, r.h, BLACK);
         // title: raised black cell (white highlight, dark shadow) + black shadow row
         let tr = self.title_rect();
         p.fill(rect(tr.x, tr.y, tr.w, 21), BLACK);
-        p.hline(tr.x, tr.y, tr.w, WHITE); p.vline(tr.x, tr.y, 21, WHITE);
-        p.hline(tr.x, tr.y + 20, tr.w, DARK); p.vline(tr.right() - 1, tr.y, 21, DARK);
+        p.bevel(rect(tr.x, tr.y, tr.w, 21), WHITE, DARK);
         p.hline(tr.x, tr.y + 21, tr.w, BLACK);
         let tw = tr.w - 6 - if self.kind == MenuKind::Torn { 16 } else { 0 };
         p.text_in(FontId::Bold, 12, rect(tr.x + 5, tr.y, tw, 20), Align::Left, &p.ellipsize(FontId::Bold, 12, &self.title, tw), WHITE);
@@ -349,8 +347,7 @@ impl MenuInst {
             let inverted = hi == Some(i) || self.open_item == Some(i);
             let face = rect(ir.x, ir.y, ir.w, 19);
             p.fill(face, if inverted { WHITE } else { LIGHT }); // 2.0: pressed / open items turn white
-            p.hline(face.x, face.y, face.w, WHITE); p.vline(face.x, face.y, 19, WHITE);
-            p.hline(face.x, face.bottom() - 1, face.w, DARK); p.vline(face.right() - 1, face.y, 19, DARK);
+            p.bevel(face, WHITE, DARK);
             p.hline(ir.x, ir.bottom() - 1, ir.w, BLACK);
             let fg = if disabled { DARK } else { BLACK };
             if checked { p.fill(rect(ir.x + 1, ir.y + 7, 4, 4), fg); }

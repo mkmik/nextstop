@@ -48,10 +48,13 @@ to `state.json.bad` and defaults are used (the Console says so).
 - Dock (off by default, `View ▸ Show Dock`): default host apps (Terminal/TextEdit/Safari or
   Notepad/Calculator/Edge) with their real icons, launch on click, drag to reorder, drag off to
   remove, drop an app to add, drop a file on a tile to open it with that app.
-- Recycler: drop to trash, contents window, `File ▸ Empty Recycler` (always confirms).
+- Recycler: Delete key or drop onto the tile (`View ▸ Show Recycler Tile`, off by default) to
+  trash, contents window (`Windows ▸ Recycler`), `File ▸ Empty Recycler` (always confirms).
+- Miniwindows: `View ▸ Show Miniwindows` (off by default) shows NeXT-style tiles for miniaturized
+  windows; otherwise a miniaturized window just hides until reopened from the menus.
 - Menus: full Workspace menu tree, submenus, tear-off menus that persist, key equivalents
   (Cmd on macOS, Ctrl on Windows), right-click main menu on the background.
-- Persistence of window, menu, Dock, Shelf, backdrop, Dock visibility and scale settings.
+- Persistence of window, menu, Dock, Shelf, backdrop, tile visibility and scale settings.
 
 ## Known limitations
 

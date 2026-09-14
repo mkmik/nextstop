@@ -22,6 +22,8 @@ One line per deviation, with the reason.
 
 - The Dock column is optional (`View ▸ Show Dock`, persisted as `dock_visible`) and **off by default**: an always-on-top column of tiles at the screen edge is intrusive on a shared desktop. The Recycler and application tiles stay. Default Dock contents are still resolved on first start so enabling it later shows the host apps.
 
+- Miniwindow tiles and the Recycler ("black hole") tile are optional too (`View ▸ Show Miniwindows`, `View ▸ Show Recycler Tile`), **off by default**. With miniwindows hidden, miniaturizing just hides the window; `Windows ▸ File Viewer`, the new `Windows ▸ Recycler`, and `Tools ▸ Inspector…/Console…` bring windows back. With the tile hidden, files reach the Recycler via the Delete key and `File ▸ Empty Recycler` still works.
+
 ## NeXTSTEP 1.0 chrome (v0.2.1)
 
 The owner asked for the look of the *first* NeXTSTEP release. Pixel geometry was measured from

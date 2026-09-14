@@ -443,6 +443,8 @@ impl App {
             Act::ShowHidden => (false, self.state.show_hidden),
             Act::Backdrop => (false, self.state.backdrop),
             Act::ShowDock => (false, self.state.dock_visible),
+            Act::ShowMiniwindows => (false, self.state.miniwindows_visible),
+            Act::ShowRecycler => (false, self.state.recycler_visible),
             _ => (false, false),
         }
     }
@@ -549,6 +551,9 @@ impl App {
             Act::ShowHidden => { self.state.show_hidden = !self.state.show_hidden; self.dirty(); self.fv_refresh(); }
             Act::Backdrop => { self.state.backdrop = !self.state.backdrop; self.dirty(); }
             Act::ShowDock => { self.state.dock_visible = !self.state.dock_visible; self.dirty(); self.dock_request_icons(); }
+            Act::ShowMiniwindows => { self.state.miniwindows_visible = !self.state.miniwindows_visible; self.dirty(); }
+            Act::ShowRecycler => { self.state.recycler_visible = !self.state.recycler_visible; self.dirty(); }
+            Act::RecyclerWin => self.show_win(WinKind::Recycler),
             Act::Inspector => self.show_win(WinKind::Inspector),
             Act::ConsoleWin => self.show_win(WinKind::Console),
             Act::FileViewerWin => self.show_win(WinKind::FileViewer),
@@ -884,9 +889,11 @@ impl App {
             let n = 1 + self.state.dock.len().min(12) as i32;
             v.push(sf(SurfaceId::Dock, rect(self.w - 67, 0, 64, 64 * n), Level::Top, "Dock"));
         }
-        v.push(sf(SurfaceId::Recycler, self.tile_rect(TileId::Recycler), Level::Top, "Recycler"));
+        if self.state.recycler_visible { v.push(sf(SurfaceId::Recycler, self.tile_rect(TileId::Recycler), Level::Top, "Recycler")); }
         v.push(sf(SurfaceId::AppTile, rect(0, self.h - 64, 64, 64), Level::Top, "Workspace"));
-        for w in &self.wins { if let Some(slot) = w.mini { v.push(sf(SurfaceId::Miniwin(w.kind), miniwindow_rect(slot, self.h), Level::Top, &w.title)); } }
+        if self.state.miniwindows_visible {
+            for w in &self.wins { if let Some(slot) = w.mini { v.push(sf(SurfaceId::Miniwin(w.kind), miniwindow_rect(slot, self.h), Level::Top, &w.title)); } }
+        }
         for m in &self.menus { let r = m.rect(); v.push(sf(SurfaceId::Menu(m.id), rect(r.x, r.y, r.w + 1, r.h + 1), Level::Top, &m.title)); }
         if self.alert.is_some() { let r = self.win(WinKind::Alert).r; v.push(sf(SurfaceId::Win(WinKind::Alert), rect(r.x - 1, r.y - 1, r.w + 2, r.h + 2), Level::Top, "Alert")); }
         if self.dragging().is_some() { v.push(sf(SurfaceId::Ghost, rect(self.mouse.x - 24, self.mouse.y - 24, 48, 48), Level::Top, "")); }

@@ -41,6 +41,8 @@ pub struct State {
     pub animations: bool,
     pub backdrop: bool,
     pub dock_visible: bool,
+    pub miniwindows_visible: bool,
+    pub recycler_visible: bool,
     pub menu_pos: XY,
     pub torn_menus: Vec<TornMenu>,
     pub dock: Vec<String>,
@@ -49,7 +51,7 @@ pub struct State {
 }
 impl Default for State {
     fn default() -> Self {
-        State { version: VERSION, os_window: WH { w: 1120, h: 832 }, scale: 1, show_hidden: false, animations: true, backdrop: false, dock_visible: false, menu_pos: XY { x: 0, y: 0 }, torn_menus: vec![], dock: vec![], shelf: vec![], windows: Windows::default() }
+        State { version: VERSION, os_window: WH { w: 1120, h: 832 }, scale: 1, show_hidden: false, animations: true, backdrop: false, dock_visible: false, miniwindows_visible: false, recycler_visible: false, menu_pos: XY { x: 0, y: 0 }, torn_menus: vec![], dock: vec![], shelf: vec![], windows: Windows::default() }
     }
 }
 

@@ -226,7 +226,7 @@ impl Scroller {
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Act {
     None, Disabled, InfoPanel, Open, NewFolder, Duplicate, Destroy, EmptyRecycler, Copy, Paste, SelectAll, CheckDisks,
-    ViewBrowser, Scale1, Scale2, ShowHidden, Backdrop, Inspector, ConsoleWin, FileViewerWin, ArrangeFront, Miniaturize, CloseWin, Hide, Quit,
+    ViewBrowser, Scale1, Scale2, ShowHidden, Backdrop, ShowDock, Inspector, ConsoleWin, FileViewerWin, ArrangeFront, Miniaturize, CloseWin, Hide, Quit,
 }
 
 pub struct ItemDef { pub label: &'static str, pub key: Option<char>, pub sub: Option<&'static [ItemDef]>, pub act: Act }
@@ -241,7 +241,7 @@ pub static FILE_MENU: [ItemDef; 7] = [
 ];
 pub static EDIT_MENU: [ItemDef; 4] = [item("Cut", Some('x'), Act::Disabled), item("Copy", Some('c'), Act::Copy), item("Paste", Some('v'), Act::Paste), item("Select All", Some('a'), Act::SelectAll)];
 pub static DISK_MENU: [ItemDef; 2] = [item("Check for Disks", None, Act::CheckDisks), item("Eject", None, Act::Disabled)];
-pub static VIEW_MENU: [ItemDef; 6] = [item("Browser", None, Act::ViewBrowser), item("Icon", None, Act::Disabled), item("Listing", None, Act::Disabled), sub("Scale", &SCALE_MENU), item("Show Hidden Files", None, Act::ShowHidden), item("Screen Backdrop", None, Act::Backdrop)];
+pub static VIEW_MENU: [ItemDef; 7] = [item("Browser", None, Act::ViewBrowser), item("Icon", None, Act::Disabled), item("Listing", None, Act::Disabled), sub("Scale", &SCALE_MENU), item("Show Hidden Files", None, Act::ShowHidden), item("Show Dock", None, Act::ShowDock), item("Screen Backdrop", None, Act::Backdrop)];
 pub static TOOLS_MENU: [ItemDef; 4] = [item("Inspector…", Some('i'), Act::Inspector), item("Finder…", None, Act::Disabled), item("Processes…", None, Act::Disabled), item("Console…", None, Act::ConsoleWin)];
 pub static WINDOWS_MENU: [ItemDef; 4] = [item("File Viewer", None, Act::FileViewerWin), item("Arrange in Front", None, Act::ArrangeFront), item("Miniaturize Window", Some('m'), Act::Miniaturize), item("Close Window", Some('w'), Act::CloseWin)];
 pub static SERVICES_MENU: [ItemDef; 1] = [item("No Services Available", None, Act::Disabled)];

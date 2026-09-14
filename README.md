@@ -45,13 +45,13 @@ to `state.json.bad` and defaults are used (the Console says so).
 - File Viewer: Shelf, Icon Path, multi-column Browser with 1.0-style title cells and ▼▲ column
   buttons, keyboard navigation (arrows, Enter, Delete, type-ahead), hidden-file toggle, live refresh every 5 s.
 - Inspector: attributes, folder size on demand, text and PNG contents.
-- Dock: default host apps (Terminal/TextEdit/Safari or Notepad/Calculator/Edge) with their real
-  icons, launch on click, drag to reorder, drag off to remove, drop an app to add, drop a file on
-  a tile to open it with that app.
+- Dock (off by default, `View ▸ Show Dock`): default host apps (Terminal/TextEdit/Safari or
+  Notepad/Calculator/Edge) with their real icons, launch on click, drag to reorder, drag off to
+  remove, drop an app to add, drop a file on a tile to open it with that app.
 - Recycler: drop to trash, contents window, `File ▸ Empty Recycler` (always confirms).
 - Menus: full Workspace menu tree, submenus, tear-off menus that persist, key equivalents
   (Cmd on macOS, Ctrl on Windows), right-click main menu on the background.
-- Persistence of window, menu, Dock, Shelf, backdrop and scale settings.
+- Persistence of window, menu, Dock, Shelf, backdrop, Dock visibility and scale settings.
 
 ## Known limitations
 

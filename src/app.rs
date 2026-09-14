@@ -246,6 +246,7 @@ impl App {
             "menus" => self.menus.iter().map(|m| format!("{}@{},{}:{:?}", m.title, m.pos.x, m.pos.y, m.kind)).collect::<Vec<_>>().join(" "),
             "key" => format!("{:?}", self.key),
             "hscroll" => self.fv_layout().hscroll.to_string(),
+            "surfaces" => self.surfaces().iter().map(|s| format!("{:?}", s.id)).collect::<Vec<_>>().join(" "),
             "selection" => self.fv_deep_selection().iter().map(|e| e.path.clone()).collect::<Vec<_>>().join(","),
             "cols" => self.fv.cols.iter().map(|c| format!("{}({})", c.dir.clone().unwrap_or("Computer".into()), c.entries.len())).collect::<Vec<_>>().join(" | "),
             "state" => serde_json::to_string(&self.state).unwrap_or_default(),
@@ -441,6 +442,7 @@ impl App {
             Act::Scale2 => (false, self.zoom == 2),
             Act::ShowHidden => (false, self.state.show_hidden),
             Act::Backdrop => (false, self.state.backdrop),
+            Act::ShowDock => (false, self.state.dock_visible),
             _ => (false, false),
         }
     }
@@ -546,6 +548,7 @@ impl App {
             Act::Scale2 => self.set_zoom(2),
             Act::ShowHidden => { self.state.show_hidden = !self.state.show_hidden; self.dirty(); self.fv_refresh(); }
             Act::Backdrop => { self.state.backdrop = !self.state.backdrop; self.dirty(); }
+            Act::ShowDock => { self.state.dock_visible = !self.state.dock_visible; self.dirty(); self.dock_request_icons(); }
             Act::Inspector => self.show_win(WinKind::Inspector),
             Act::ConsoleWin => self.show_win(WinKind::Console),
             Act::FileViewerWin => self.show_win(WinKind::FileViewer),
@@ -860,7 +863,7 @@ impl App {
             }
             return;
         }
-        if self.dock_strip().contains(p) { for path in paths.into_iter().filter(|p| icons::is_app_path(&icons::basename(p))) { self.dock_add(path); } return; }
+        if self.state.dock_visible && self.dock_strip().contains(p) { for path in paths.into_iter().filter(|p| icons::is_app_path(&icons::basename(p))) { self.dock_add(path); } return; }
         if let Some((WinKind::FileViewer, WinPart::Content)) = self.win_hit(p) { self.fv_drop(p, paths, mods.alt); }
     }
     pub fn dragging(&self) -> Option<(&Vec<String>, &'static str)> {
@@ -877,8 +880,10 @@ impl App {
         let mut order: Vec<&Win> = self.wins.iter().filter(|w| w.shown() && w.kind != WinKind::Alert).collect();
         order.sort_by_key(|w| w.z);
         for w in order { v.push(sf(SurfaceId::Win(w.kind), rect(w.r.x - 1, w.r.y - 1, w.r.w + 2, w.r.h + 2), Level::Normal, &w.title)); }
-        let n = 1 + self.state.dock.len().min(12) as i32;
-        v.push(sf(SurfaceId::Dock, rect(self.w - 67, 0, 64, 64 * n), Level::Top, "Dock"));
+        if self.state.dock_visible {
+            let n = 1 + self.state.dock.len().min(12) as i32;
+            v.push(sf(SurfaceId::Dock, rect(self.w - 67, 0, 64, 64 * n), Level::Top, "Dock"));
+        }
         v.push(sf(SurfaceId::Recycler, self.tile_rect(TileId::Recycler), Level::Top, "Recycler"));
         v.push(sf(SurfaceId::AppTile, rect(0, self.h - 64, 64, 64), Level::Top, "Workspace"));
         for w in &self.wins { if let Some(slot) = w.mini { v.push(sf(SurfaceId::Miniwin(w.kind), miniwindow_rect(slot, self.h), Level::Top, &w.title)); } }

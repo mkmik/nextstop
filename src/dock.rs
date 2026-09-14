@@ -41,7 +41,7 @@ impl App {
     /// Tiles float above windows: dock tiles, Recycler, application tile, miniwindows.
     pub fn tile_hit(&self, p: Pt) -> Option<Btn> {
         if self.tile_rect(TileId::Recycler).contains(p) { return Some(Btn::Tile(TileId::Recycler)); }
-        if self.dock_strip().contains(p) {
+        if self.state.dock_visible && self.dock_strip().contains(p) {
             if self.tile_rect(TileId::Workspace).contains(p) { return Some(Btn::Tile(TileId::Workspace)); }
             return (0..self.state.dock.len().min(12)).find(|&i| self.tile_rect(TileId::App(i)).contains(p)).map(|i| Btn::Tile(TileId::App(i)));
         }
@@ -79,6 +79,7 @@ impl App {
     }
     /// Request host app icons that are not cached yet (called from the draw path's data side: start()/dock changes).
     pub fn dock_request_icons(&mut self) {
+        if !self.state.dock_visible { return; }
         for app in self.state.dock.clone() {
             if self.dock.icons.contains_key(&app) || self.dock.requested.contains(&app) { continue; }
             self.dock.requested.insert(app.clone());

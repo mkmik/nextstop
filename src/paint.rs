@@ -172,6 +172,15 @@ impl<'a> Painter<'a> {
     pub fn pressed(&mut self, r: Rect) { self.fill(r, LIGHT); self.bevel(r, DARK, WHITE); self.shadow(r); }
     pub fn shadow(&mut self, r: Rect) { self.hline(r.x + 1, r.bottom(), r.w, BLACK); self.vline(r.right(), r.y + 1, r.h, BLACK); }
     pub fn sunken(&mut self, r: Rect) { self.fill(r, LIGHT); self.bevel(r, DARK, WHITE); }
+    /// 50 % checkerboard of light and dark gray, one logical pixel per cell (NeXT scroller tracks).
+    pub fn dither(&mut self, r: Rect) {
+        self.fill(r, LIGHT);
+        for y in r.y..r.bottom() {
+            let start = if (r.x + y) & 1 == 0 { r.x } else { r.x + 1 };
+            let mut x = start;
+            while x < r.right() { self.fill(rect(x, y, 1, 1), DARK); x += 2; }
+        }
+    }
 
     /// Blend a premultiplied image at logical (x, y); it is drawn at its own device size, scaled to `w`×`h` logical if given.
     pub fn image(&mut self, img: &Image, x: i32, y: i32, size: Option<(i32, i32)>, opacity: u8) {

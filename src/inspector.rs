@@ -42,15 +42,15 @@ fn fmt_size(n: u64) -> String {
 }
 
 impl App {
-    fn insp_popup_rect(&self) -> Rect { let c = self.content_rect(WinKind::Inspector).inset(1); rect(c.x + 8, c.y + 68, c.w - 16, 24) }
-    fn insp_body(&self) -> Rect { let c = self.content_rect(WinKind::Inspector).inset(1); rect(c.x + 8, c.y + 108, c.w - 16, c.h - 116) }
+    fn insp_popup_rect(&self) -> Rect { let c = self.content_rect(WinKind::Inspector); rect(c.x + 8, c.y + 68, c.w - 16, 23) }
+    fn insp_body(&self) -> Rect { let c = self.content_rect(WinKind::Inspector); rect(c.x + 8, c.y + 108, c.w - 16, c.h - 116) }
     fn insp_row_rect(&self, i: usize) -> Rect { let b = self.insp_popup_rect(); rect(b.x, b.bottom() + 1 + i as i32 * 20, b.w, 20) }
     fn insp_compute_rect(&self) -> Rect { let b = self.insp_body(); rect(b.x + 80 + 40, b.y + 40, 64, 20) }
     pub fn insp_text_scroller(&self) -> Option<Scroller> {
         let lines = self.insp.text.as_ref()?.len() as i32;
         let b = self.insp_body();
         let total = lines * 13 + 4;
-        Some(Scroller { r: rect(b.right() - 16, b.y, 16, b.h), vertical: true, total, visible: b.h, pos: self.insp.scroll.clamp(0, (total - b.h).max(0)) })
+        Some(Scroller { r: rect(b.x, b.y, SCROLL_W, b.h), vertical: true, total, visible: b.h, pos: self.insp.scroll.clamp(0, (total - b.h).max(0)) })
     }
 
     pub fn insp_update(&mut self, e: Option<Entry>) {
@@ -148,7 +148,7 @@ impl App {
             if e.is_dir && self.insp.dir_size.is_none() && !self.insp.computing { button(p, self.insp_compute_rect(), "Compute", pressed == Some(Btn::InspCompute), false); }
         } else if let Some(lines) = &self.insp.text {
             let sc = self.insp_text_scroller().unwrap();
-            let tr = rect(b.x, b.y, b.w - 16, b.h);
+            let tr = rect(b.x + SCROLL_W, b.y, b.w - SCROLL_W, b.h);
             p.sunken(tr);
             p.push_clip(tr.inset(1));
             let first = (sc.pos / 13).max(0) as usize;

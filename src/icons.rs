@@ -22,13 +22,6 @@ pub fn file_icon(name: &str) -> &'static str {
 pub fn icon_for(name: &str, is_dir: bool, is_app: bool) -> &'static str {
     if is_dir { "folder" } else if is_app { "application" } else { file_icon(name) }
 }
-/// 16×16 cell icon name (only some types have a small variant).
-pub fn small_icon_for(name: &str, is_dir: bool, is_app: bool) -> &'static str {
-    match icon_for(name, is_dir, is_app) {
-        "folder" => "folder-16", "application" => "application-16", "file-text" => "file-text-16",
-        "file-image" => "file-image-16", "file-code" => "file-code-16", _ => "file-generic-16",
-    }
-}
 pub fn is_app_path(name: &str) -> bool { matches!(ext(name).as_str(), "app" | "exe" | "lnk") }
 pub fn kind_for(name: &str, is_dir: bool, is_app: bool) -> String {
     if is_dir { return "Folder".into(); }
@@ -91,6 +84,5 @@ mod tests {
     fn kinds() {
         assert_eq!(file_icon("a.PNG"), "file-image");
         assert_eq!(kind_for("x.pdf", false, false), "PDF document");
-        assert_eq!(small_icon_for("main.rs", false, false), "file-code-16");
     }
 }

@@ -232,6 +232,16 @@ fn headless(cfg: Config, script: &str, out_dir: &str) {
                     cursor = b;
                 } else { eprintln!("dragsel: no selection"); }
             }
+            "dragcell" => { // drag from the selected cell onto cell IDX of the same column
+                let r: Vec<i32> = app.debug_query("selrect").split_whitespace().filter_map(|v| v.parse().ok()).collect();
+                let t: Vec<i32> = app.debug_query(&format!("cellrect {}", parts[1])).split_whitespace().filter_map(|v| v.parse().ok()).collect();
+                if r.len() == 4 && t.len() == 4 {
+                    let (a, b) = (pt(r[0] + 40, r[1] + 8), pt(t[0] + 40, t[1] + 8));
+                    app.handle(Ev::MouseMove(a)); app.handle(Ev::MouseDown(a, Button::Left, mods));
+                    for i in 1..=8 { let p = pt(a.x + (b.x - a.x) * i / 8, a.y + (b.y - a.y) * i / 8); app.handle(Ev::MouseMove(p)); }
+                    cursor = b;
+                } else { eprintln!("dragcell: no selection/cell"); }
+            }
             "drop" => app.handle(Ev::MouseUp(cursor, Button::Left, mods)),
             "mods" => { mods = Mods { shift: parts.contains(&"shift"), alt: parts.contains(&"alt"), cmd: parts.contains(&"cmd") }; }
             "key" => {

@@ -28,13 +28,14 @@ impl Default for Dock {
 #[derive(Default)]
 pub struct RecWin { pub items: Option<Result<Vec<Entry>, String>>, pub scroll: i32 }
 
-fn tile(p: &mut Painter, r: Rect, pressed: bool) { if pressed { p.pressed(r) } else { p.raised(r) } }
-fn dots(p: &mut Painter, r: Rect) { for i in 0..3 { p.fill(rect(r.x + 6 + i * 4, r.y + 54, 2, 2), BLACK); } }
+fn tile(p: &mut Painter, r: Rect, pressed: bool) { if pressed { p.sunken(r) } else { tile_bevel(p, r) } }
+fn dots(p: &mut Painter, r: Rect) { for i in 0..3 { p.fill(rect(r.x + 7 + i * 4, r.y + 55, 2, 2), BLACK); } }
 
 impl App {
-    pub fn dock_strip(&self) -> Rect { rect(self.w - 64, 0, 64, self.h - 64) }
+    /// Tiles hug the right edge with the 3 px margin seen on real screens.
+    pub fn dock_strip(&self) -> Rect { rect(self.w - 67, 0, 67, self.h - 64) }
     pub fn tile_rect(&self, t: TileId) -> Rect {
-        match t { TileId::Workspace => rect(self.w - 64, 0, 64, 64), TileId::App(i) => rect(self.w - 64, 64 * (i as i32 + 1), 64, 64), TileId::Recycler => rect(self.w - 64, self.h - 64, 64, 64) }
+        match t { TileId::Workspace => rect(self.w - 67, 0, 64, 64), TileId::App(i) => rect(self.w - 67, 64 * (i as i32 + 1), 64, 64), TileId::Recycler => rect(self.w - 67, self.h - 64, 64, 64) }
     }
     fn apptile_rect(&self) -> Rect { rect(0, self.h - 64, 64, 64) }
     /// Tiles float above windows: dock tiles, Recycler, application tile, miniwindows.
@@ -68,7 +69,7 @@ impl App {
         tile(p, rc, pressed == Some(Btn::Tile(TileId::Recycler)));
         p.icon(if self.dock.trash_empty { "recycler-empty" } else { "recycler-full" }, rc.x + 8, rc.y + 8, 48);
         let at = self.apptile_rect();
-        p.raised(at);
+        tile_bevel(p, at);
         p.icon("workspace", at.x + 8, at.y + 8, 48);
         for w in &self.wins { if let Some(slot) = w.mini { draw_miniwindow(p, miniwindow_rect(slot, self.h), w.icon, &w.title); } }
     }
@@ -136,13 +137,13 @@ impl App {
         if cfg!(target_os = "macos") { self.rec.items = None; self.spawn(|| Job::TrashList(fs::trash_list())); }
     }
     pub fn rec_scroller(&self) -> Scroller {
-        let c = self.content_rect(WinKind::Recycler).inset(1);
+        let c = self.content_rect(WinKind::Recycler);
         let n = self.rec.items.as_ref().and_then(|r| r.as_ref().ok()).map_or(0, |v| v.len()) as i32;
-        let per_row = ((c.w - 16 - 8) / 80).max(1);
+        let per_row = ((c.w - SCROLL_W - 8) / 80).max(1);
         let total = ((n + per_row - 1) / per_row) * 90 + 8;
-        Scroller { r: rect(c.right() - 16, c.y, 16, c.h), vertical: true, total, visible: c.h, pos: self.rec.scroll.clamp(0, (total - c.h).max(0)) }
+        Scroller { r: rect(c.x, c.y, SCROLL_W, c.h), vertical: true, total, visible: c.h, pos: self.rec.scroll.clamp(0, (total - c.h).max(0)) }
     }
-    fn rec_button_rect(&self) -> Rect { let c = self.content_rect(WinKind::Recycler).inset(1); rect(c.x + 12, c.y + 60, 120, 24) }
+    fn rec_button_rect(&self) -> Rect { let c = self.content_rect(WinKind::Recycler); rect(c.x + SCROLL_W + 12, c.y + 60, 120, BTN_H - 1) }
     fn rec_has_button(&self) -> bool { !cfg!(target_os = "macos") || matches!(self.rec.items, Some(Err(_))) }
     pub fn rec_btn_hit(&self, p: Pt) -> Option<Btn> {
         if self.rec_has_button() && self.rec_button_rect().contains(p) { return Some(Btn::RecBtn); }
@@ -161,6 +162,7 @@ impl App {
     }
     pub fn rec_draw(&self, p: &mut Painter, c: Rect) {
         let pressed = self.pressed();
+        let c = rect(c.x + SCROLL_W, c.y, c.w - SCROLL_W, c.h);
         if !cfg!(target_os = "macos") {
             p.text(FontId::Regular, 12, c.x + 12, c.y + 24, "The Recycle Bin is not a folder on Windows.", BLACK);
             button(p, self.rec_button_rect(), "Open Recycle Bin", pressed == Some(Btn::RecBtn), false);
@@ -178,8 +180,8 @@ impl App {
             Some(Ok(items)) => {
                 let sc = self.rec_scroller();
                 if items.is_empty() { p.text(FontId::Regular, 12, c.x + 12, c.y + 24, "The Recycler is empty.", DARK); }
-                let per_row = ((c.w - 16 - 8) / 80).max(1);
-                p.push_clip(rect(c.x, c.y, c.w - 16, c.h));
+                let per_row = ((c.w - 8) / 80).max(1);
+                p.push_clip(c);
                 for (i, e) in items.iter().enumerate() {
                     let (col, row) = (i as i32 % per_row, i as i32 / per_row);
                     let r = rect(c.x + 4 + col * 80, c.y + 4 + row * 90 - sc.pos, 80, 90);

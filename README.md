@@ -1,8 +1,8 @@
 # ReWorkspace
 
-A native, single-binary recreation of the **look** of the NeXTSTEP 3.3 desktop — Workspace
-Manager, vertical menus, Dock, Recycler — running as an ordinary window on macOS and Windows, in
-the spirit of [ReProgman](https://github.com/mayuki/ReProgman).
+A native, single-binary recreation of the **look** of the first NeXTSTEP release (0.9/1.0, 1989) —
+Workspace Manager, vertical menus, Dock, black-hole Recycler — running as an ordinary window on
+macOS and Windows, in the spirit of [ReProgman](https://github.com/mayuki/ReProgman).
 
 It is written in Rust and draws every pixel itself (no webview, no GPU, no UI toolkit): a
 `winit` window, a `softbuffer` framebuffer, bevels and text from our own painter. It is not a
@@ -39,8 +39,8 @@ to `state.json.bad` and defaults are used (the Console says so).
 
 ## What works
 
-- File Viewer: Shelf, Icon Path, multi-column Browser, keyboard navigation (arrows, Enter,
-  Delete, type-ahead), hidden-file toggle, per-column scrollers, live refresh every 5 s.
+- File Viewer: Shelf, Icon Path, multi-column Browser with 1.0-style title cells and ▼▲ column
+  buttons, keyboard navigation (arrows, Enter, Delete, type-ahead), hidden-file toggle, live refresh every 5 s.
 - Inspector: attributes, folder size on demand, text and PNG contents.
 - Dock: default host apps (Terminal/TextEdit/Safari or Notepad/Calculator/Edge) with their real
   icons, launch on click, drag to reorder, drag off to remove, drop an app to add, drop a file on

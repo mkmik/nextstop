@@ -138,12 +138,12 @@ impl App {
             Win::new(WinKind::Console, wr(&st.windows.console), "Console", "miniwindow"),
             Win::new(WinKind::Info, rect(0, 120, 300, 200), "Info", "workspace"),
             Win::new(WinKind::Recycler, wr(&st.windows.recycler), "Recycler", "recycler-empty"),
-            Win::new(WinKind::Alert, rect(0, 0, 380, 140), "ReWorkspace", "alert"),
+            Win::new(WinKind::Alert, rect(0, 0, 380, 176), "", "alert"),
         ];
         wins[wi(WinKind::FileViewer)].min_w = 480; wins[wi(WinKind::FileViewer)].min_h = 320;
-        wins[wi(WinKind::Inspector)].resizable = false;
+        wins[wi(WinKind::Inspector)].resizable = false; wins[wi(WinKind::Inspector)].mini_btn = false;
         wins[wi(WinKind::Console)].min_w = 240; wins[wi(WinKind::Console)].min_h = 100;
-        wins[wi(WinKind::Info)].resizable = false;
+        wins[wi(WinKind::Info)].resizable = false; wins[wi(WinKind::Info)].mini_btn = false;
         wins[wi(WinKind::Recycler)].min_w = 200; wins[wi(WinKind::Recycler)].min_h = 120;
         let a = &mut wins[wi(WinKind::Alert)];
         a.resizable = false; a.mini_btn = false; a.close_btn = false;
@@ -247,16 +247,14 @@ impl App {
             "shelf" => self.state.shelf.join(","),
             "menus" => self.menus.iter().map(|m| format!("{}@{},{}:{:?}", m.title, m.pos.x, m.pos.y, m.kind)).collect::<Vec<_>>().join(" "),
             "key" => format!("{:?}", self.key),
+            "hscroll" => self.fv_layout().hscroll.to_string(),
             "selection" => self.fv_deep_selection().iter().map(|e| e.path.clone()).collect::<Vec<_>>().join(","),
             "cols" => self.fv.cols.iter().map(|c| format!("{}({})", c.dir.clone().unwrap_or("Computer".into()), c.entries.len())).collect::<Vec<_>>().join(" | "),
             "state" => serde_json::to_string(&self.state).unwrap_or_default(),
-            "selrect" => { // rect of the first selected cell in the focused column, for coordinate-free drag tests
-                let lay = self.fv_layout();
-                let ci = self.fv.focus;
-                match self.fv.cols.get(ci).and_then(|c| c.sel.iter().position(|s| *s)) {
-                    Some(idx) => { let (list, sc) = self.fv_col_list(&lay, ci); let r = rect(list.x, list.y + idx as i32 * crate::fileviewer::CELL_H - sc.map_or(0, |s| s.pos), list.w, crate::fileviewer::CELL_H); format!("{} {} {} {}", r.x, r.y, r.w, r.h) }
-                    None => "none".into(),
-                }
+            "selrect" => self.fv_sel_cell_rect().map_or("none".into(), |r| format!("{} {} {} {}", r.x, r.y, r.w, r.h)),
+            q if q.starts_with("cellrect ") => {
+                let idx: usize = q[9..].trim().parse().unwrap_or(0);
+                self.fv_cell_rect_of(self.fv.focus, idx).map_or("none".into(), |r| format!("{} {} {} {}", r.x, r.y, r.w, r.h))
             }
             _ => "?".into(),
         }
@@ -341,7 +339,7 @@ impl App {
         let prev_key = self.key;
         let (w, h) = (self.w, self.h);
         let a = self.win_mut(WinKind::Alert);
-        a.r = rect((w - 380) / 2, (h - 140) / 2, 380, 140);
+        a.r = rect((w - 380) / 2, (h - 176) / 2, 380, 176);
         a.visible = true;
         self.alert = Some(Alert { message: message.into(), detail: detail.into(), buttons: buttons.iter().map(|s| s.to_string()).collect(), pending, prev_key });
         self.capture = None;
@@ -367,7 +365,7 @@ impl App {
         let Some(a) = &self.alert else { return vec![] };
         let c = self.content_rect(WinKind::Alert);
         let n = a.buttons.len() as i32;
-        (0..n).map(|i| rect(c.right() - 12 - (n - i) * 88 + 8, c.bottom() - 10 - 24, 80, 24)).collect()
+        (0..n).map(|i| rect(c.right() - 10 - (n - i) * 88 + 8, c.bottom() - 10 - BTN_H, 80, BTN_H - 1)).collect()
     }
 
     // ---- fs operations ------------------------------------------------------------------------
@@ -412,12 +410,12 @@ impl App {
 
     // ---- menus (§7.3) -------------------------------------------------------------------------
     fn build_menus(&mut self) {
-        let w = MenuInst::width(&self.fonts, &MAIN_MENU, "Workspace", true);
+        let w = MenuInst::width(&self.fonts, &MAIN_MENU, "Workspace");
         self.menus.push(MenuInst { title: "Workspace".into(), items: &MAIN_MENU, path: vec![], pos: pt(self.state.menu_pos.x, self.state.menu_pos.y), w, kind: MenuKind::Main, open_item: None });
         for t in self.state.torn_menus.clone() {
             if let Some(items) = resolve_path(&t.path) {
                 let title = t.path.last().cloned().unwrap_or_default();
-                let w = MenuInst::width(&self.fonts, items, &title, false);
+                let w = MenuInst::width(&self.fonts, items, &title);
                 self.menus.push(MenuInst { title, items, path: t.path.clone(), pos: pt(t.x, t.y), w, kind: MenuKind::Torn, open_item: None });
             }
         }
@@ -461,7 +459,7 @@ impl App {
             return;
         }
         let title = it.label.to_string();
-        let w = MenuInst::width(&self.fonts, items, &title, false);
+        let w = MenuInst::width(&self.fonts, items, &title);
         self.menus[m].open_item = Some(item);
         let popup = self.menus[m].kind == MenuKind::Popup;
         let mut sub = MenuInst { title, items, path, pos: pt(0, 0), w, kind: MenuKind::Sub { parent: m, item }, open_item: None };
@@ -470,11 +468,11 @@ impl App {
         let i = self.menus.len() - 1;
         self.reattach(i);
     }
+    /// Attached submenus sit right of their parent (1 px shadow + 1 px gap), tops aligned, as in 1.0.
     fn reattach(&mut self, i: usize) {
-        if let MenuKind::Sub { parent, item } = self.menus[i].kind {
+        if let MenuKind::Sub { parent, .. } = self.menus[i].kind {
             let p = &self.menus[parent];
-            let ir = p.item_rect(item);
-            self.menus[i].pos = pt(p.pos.x + p.w, ir.y);
+            self.menus[i].pos = pt(p.pos.x + p.w + 2, p.pos.y);
         }
         let children: Vec<usize> = self.menus.iter().enumerate().filter(|(_, x)| matches!(x.kind, MenuKind::Sub { parent, .. } if parent == i)).map(|(j, _)| j).collect();
         for c in children { self.reattach(c); }
@@ -507,7 +505,7 @@ impl App {
     }
     fn popup_menu(&mut self, p: Pt) {
         self.close_submenus();
-        let w = MenuInst::width(&self.fonts, &MAIN_MENU, "Workspace", true);
+        let w = MenuInst::width(&self.fonts, &MAIN_MENU, "Workspace");
         self.menus.push(MenuInst { title: "Workspace".into(), items: &MAIN_MENU, path: vec![], pos: p, w, kind: MenuKind::Popup, open_item: None });
     }
     /// Topmost menu part under `p`.
@@ -650,17 +648,18 @@ impl App {
         true
     }
     pub fn scroll_by(&mut self, id: ScrollId, d: i32) { let cur = self.scroll_pos(id); self.set_scroll(id, cur + d); }
+    /// Current (clamped) scroll position.
     pub fn scroll_pos(&self, id: ScrollId) -> i32 {
         match id {
-            ScrollId::Col(cid) => self.fv.cols.iter().find(|c| c.id == cid).map_or(0, |c| c.scroll),
-            ScrollId::Browser => self.fv.hscroll,
+            ScrollId::Col(cid) => { let lay = self.fv_layout(); self.fv.cols.iter().position(|c| c.id == cid).map_or(0, |i| self.col_scroll(&lay, i)) }
+            ScrollId::Browser => self.fv_layout().hscroll,
             ScrollId::Console => self.console_scroll,
             ScrollId::InspText => self.insp.scroll,
             ScrollId::Recycler => self.rec.scroll,
         }
     }
     pub fn set_scroll(&mut self, id: ScrollId, v: i32) {
-        let max = self.scroller_for(id).map_or(0, |s| s.max_pos());
+        let max = match id { ScrollId::Browser | ScrollId::Col(_) => self.fv_scroll_max(id), _ => self.scroller_for(id).map_or(0, |s| s.max_pos()) };
         let v = v.clamp(0, max);
         match id {
             ScrollId::Col(cid) => { if let Some(c) = self.fv.cols.iter_mut().find(|c| c.id == cid) { c.scroll = v; } }
@@ -673,8 +672,7 @@ impl App {
     }
     fn scroller_for(&self, id: ScrollId) -> Option<Scroller> {
         match id {
-            ScrollId::Col(cid) => self.fv_col_scroller(cid),
-            ScrollId::Browser => Some(self.fv_layout().hscroll),
+            ScrollId::Col(_) | ScrollId::Browser => None,
             ScrollId::Console => Some(self.console_scroller()),
             ScrollId::InspText => self.insp_text_scroller(),
             ScrollId::Recycler => Some(self.rec_scroller()),
@@ -789,7 +787,7 @@ impl App {
             Btn::AlertBtn(i) => self.alert_button(i),
             Btn::Tile(t) => self.dock_tile_click(t),
             Btn::Miniwin(_) => {}
-            Btn::ScrollArrow(id, d) => self.scroll_by(id, d as i32 * 18),
+            Btn::ScrollArrow(id, d) => { let step = match id { ScrollId::Browser => crate::fileviewer::COL_PITCH, ScrollId::Col(_) => crate::fileviewer::CELL_H, _ => 18 }; self.scroll_by(id, d as i32 * step); }
             Btn::Shelf(i) => { if let Some(p) = self.state.shelf.get(i).cloned() { self.fv_navigate(&p); } }
             Btn::PathItem(i) => { if let Some(p) = self.fv_path_components().get(i).cloned() { self.fv_navigate(&p); } }
             Btn::InspPopup => self.insp.popup_open = !self.insp.popup_open,
@@ -897,7 +895,7 @@ impl App {
         // a miniaturizing window is hidden while its animation runs
         if self.anim.as_ref().is_some_and(|a| a.k == w.kind) && w.kind != WinKind::Alert { return; }
         w.draw_chrome(p, self.key == Some(w.kind), pressed);
-        let c = w.content().inset(1);
+        let c = w.content();
         p.push_clip(c);
         match w.kind {
             WinKind::FileViewer => self.fv_draw(p, c),
@@ -911,29 +909,32 @@ impl App {
     }
     fn alert_draw(&self, p: &mut Painter, c: Rect) {
         let Some(a) = &self.alert else { return };
-        p.icon("alert", c.x + 16, c.y + 14, 48);
-        p.text(FontId::Bold, 12, c.x + 80, c.y + 27, &a.message, BLACK);
-        p.text(FontId::Regular, 12, c.x + 80, c.y + 41, &a.detail, BLACK);
+        // 1.0 layout: icon + "Alert" header, groove, message, buttons bottom right
+        p.icon("alert", c.x + 10, c.y + 8, 48);
+        p.text(FontId::Bold, 18, c.x + 70, c.y + 40, "Alert", BLACK);
+        p.hline(c.x, c.y + 64, c.w, DARK); p.hline(c.x, c.y + 65, c.w, WHITE);
+        p.text(FontId::Regular, 12, c.x + 10, c.y + 84, &a.message, BLACK);
+        p.text(FontId::Regular, 12, c.x + 10, c.y + 100, &a.detail, BLACK);
         let pressed = self.pressed();
         for (i, r) in self.alert_buttons().iter().enumerate() {
             button(p, *r, &a.buttons[i], pressed == Some(Btn::AlertBtn(i)), i == a.buttons.len() - 1);
         }
     }
     fn console_scroller(&self) -> Scroller {
-        let c = self.content_rect(WinKind::Console).inset(1);
+        let c = self.content_rect(WinKind::Console);
         let total = self.console.len() as i32 * 13 + 4;
         let visible = c.h;
         let pos = if self.console_stick { (total - visible).max(0) } else { self.console_scroll.min((total - visible).max(0)) };
-        Scroller { r: rect(c.right() - 16, c.y, 16, c.h), vertical: true, total, visible, pos }
+        Scroller { r: rect(c.x, c.y, SCROLL_W, c.h), vertical: true, total, visible, pos }
     }
     fn console_draw(&self, p: &mut Painter, c: Rect) {
         let sc = self.console_scroller();
-        let list = rect(c.x, c.y, c.w - 16, c.h);
+        let list = rect(c.x + SCROLL_W, c.y, c.w - SCROLL_W, c.h);
         p.push_clip(list);
         let first = (sc.pos / 13).max(0) as usize;
         for (i, line) in self.console.iter().enumerate().skip(first).take((c.h / 13 + 2) as usize) {
             let y = c.y + 2 + i as i32 * 13 - sc.pos;
-            p.text(FontId::Mono, 11, c.x + 4, y + 10, line, BLACK);
+            p.text(FontId::Mono, 11, list.x + 4, y + 10, line, BLACK);
         }
         p.pop_clip();
         sc.draw(p, self.pressed().and_then(|b| match b { Btn::ScrollArrow(ScrollId::Console, d) => Some(if d < 0 { ScrollHit::ArrowA } else { ScrollHit::ArrowB }), _ => None }));

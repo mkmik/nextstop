@@ -47,7 +47,7 @@ pub struct State {
 }
 impl Default for State {
     fn default() -> Self {
-        State { version: VERSION, os_window: WH { w: 1120, h: 832 }, scale: 1, show_hidden: false, animations: true, menu_pos: XY { x: 4, y: 4 }, torn_menus: vec![], dock: vec![], shelf: vec![], windows: Windows::default() }
+        State { version: VERSION, os_window: WH { w: 1120, h: 832 }, scale: 1, show_hidden: false, animations: true, menu_pos: XY { x: 0, y: 0 }, torn_menus: vec![], dock: vec![], shelf: vec![], windows: Windows::default() }
     }
 }
 

@@ -11,6 +11,20 @@ One line per deviation, with the reason.
 - macOS packaging is `scripts/bundle-macos.sh` (plain `.app` + `hdiutil` DMG, ad-hoc codesign); Windows ships the bare `reworkspace.exe`, which is fully portable (no WebView2 needed any more). The optional NSIS installer and an embedded `.exe` icon were not done.
 - Miniaturize animation shrinks a gray window outline (120 ms) instead of scaling the live window contents.
 
+## NeXTSTEP 1.0 chrome (v0.2.1)
+
+The owner asked for the look of the *first* NeXTSTEP release. Pixel geometry was measured from
+1120×832 screenshots of NeXTSTEP 0.9/1.0 (toastytech.com, WinWorld); no artwork was copied, only
+dimensions and shading rules. Where the PRD (which describes 3.3) and 1.0 differ, 1.0 wins:
+
+- Window frame: 1 px black outline; no bevel around the content. Title bar = highlight row (light gray on the black key bar, white on the light non-key bar), 19 fill rows with the highlight down the left column and a dark right column, a dark row and a black row. **Non-key title bars are light gray with black text** (the PRD's dark-gray/white is the 3.x look). Buttons are 14×14 at 3 px; the miniaturize glyph is a tiny window (hollow square with a thick top), the close glyph a 2 px X.
+- Resize bar: dark row, white row, 6 face rows; grooves (dark + white column) 28 px from each end instead of at 25 %/75 %. Panels (Inspector, Info, alerts) have no miniaturize button.
+- Menus: as narrow as their contents (min 93 px), default position 0,0, left-aligned bold title on a raised black cell, items = white/light/dark/black rows (20 px), hollow ▷ for submenus, bare key letters (1.0 shows no modifier glyph), no separator before Hide. Attached submenus open with their **top aligned to the parent menu**, 2 px to its right.
+- Browser: each column is a sunken box under a dark title cell showing the directory name, cells are 16 px with **white** selection highlight and hollow ▷ markers, no per-cell icons (neither 1.0 nor 3.3 had them), a ▼ ▲ button pair under every column instead of a knob scroller, and a ◀ ▶ strip on the left instead of a horizontal scroller.
+- Scrollers (Console, Inspector, Recycler) sit on the **left** of their view, 18 px wide, with a 50 % dithered track, a dimpled knob and both arrows at the bottom.
+- Dock/application/Recycler tiles use the heavier 1.0 bevel (2 px white, dark + 2 px black) and keep a 3 px margin from the screen edge; miniwindows carry a black title strip on top. The Recycler icon is a "black hole" (original drawing), as in 1.0.
+- Alert panels: black title bar without text, icon + large "Alert" header, groove line, message, buttons bottom right (the default one with the return glyph only).
+
 ## Behaviour (unchanged from v0.1)
 
 - `Entry.is_dir` for symlinks reflects the *target* (via `fs::metadata`, broken links fall back to the link itself). §8 says never follow, but §9.12 requires navigating into symlinked directories, which needs the target type.

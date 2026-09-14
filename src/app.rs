@@ -8,19 +8,20 @@ use crate::geom::{pt, rect, Pt, Rect};
 use crate::icons;
 use crate::inspector::Inspector;
 use crate::mandel::{MBtn, Mandel};
+use crate::shell::Shell;
 use crate::paint::*;
 use std::rc::Rc;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct Mods { pub shift: bool, pub alt: bool, pub cmd: bool }
+pub struct Mods { pub shift: bool, pub alt: bool, pub ctrl: bool, pub cmd: bool }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Button { Left, Right, Other }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Key { Up, Down, Left, Right, Enter, Escape, Delete, Char(char) }
+pub enum Key { Up, Down, Left, Right, Enter, Escape, Delete, Backspace, Tab, Home, End, PageUp, PageDown, Char(char) }
 
 #[derive(Clone, Copy, Debug)]
 pub enum Ev { MouseMove(Pt), MouseDown(Pt, Button, Mods), MouseUp(Pt, Button, Mods), Wheel(Pt, f32, f32), Key(Key, Mods), Focus(bool) }
@@ -39,6 +40,7 @@ pub enum Job {
     Done { what: String, result: Result<(), String> },
     NewFolder(Result<String, String>),
     Mandel { seq: u64, iters: Vec<u16>, ms: u32 },
+    TermWake, TermTitle(String), TermWrite(String), TermExit,
 }
 
 pub struct Config { pub demo: Option<String>, pub home_override: Option<String>, pub config_override: Option<String> }
@@ -50,7 +52,7 @@ pub enum Pending { Nothing, Trash(Vec<String>), Destroy(Vec<String>), EmptyTrash
 pub struct Alert { pub message: String, pub detail: String, pub buttons: Vec<String>, pub pending: Pending, pub prev_key: Option<WinKind> }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum ScrollId { Col(u64), Browser, Console, InspText, Recycler }
+pub enum ScrollId { Col(u64), Browser, Console, InspText, Recycler, Shell }
 
 /// Every press-and-release control on the Screen (§9.2).
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -88,7 +90,7 @@ pub struct App {
     redraw: bool,
     minimize: bool,
     pub cfg: Config,
-    post: Arc<dyn Fn(Job) + Send + Sync>,
+    pub post: Arc<dyn Fn(Job) + Send + Sync>,
     pub fonts: Rc<Fonts>,
     pub home: String, pub roots: Vec<String>, pub is_win: bool,
     pub state: state::State,
@@ -99,7 +101,7 @@ pub struct App {
     menu_seq: u64,
     pub menus: Vec<MenuInst>,
     pub alert: Option<Alert>,
-    pub fv: FileViewer, pub insp: Inspector, pub dock: Dock, pub rec: RecWin, pub mandel: Mandel,
+    pub fv: FileViewer, pub insp: Inspector, pub dock: Dock, pub rec: RecWin, pub mandel: Mandel, pub shell: Shell,
     pub console: Vec<String>, pub console_scroll: i32, console_stick: bool,
     pub capture: Option<Capture>,
     pub mouse: Pt,
@@ -109,7 +111,7 @@ pub struct App {
     pub now: Instant,
 }
 
-const KINDS: [WinKind; 7] = [WinKind::FileViewer, WinKind::Inspector, WinKind::Console, WinKind::Info, WinKind::Recycler, WinKind::Mandelbrot, WinKind::Alert];
+const KINDS: [WinKind; 8] = [WinKind::FileViewer, WinKind::Inspector, WinKind::Console, WinKind::Info, WinKind::Recycler, WinKind::Mandelbrot, WinKind::Shell, WinKind::Alert];
 pub fn wi(k: WinKind) -> usize { KINDS.iter().position(|x| *x == k).unwrap() }
 
 impl App {
@@ -147,6 +149,7 @@ impl App {
             Win::new(WinKind::Info, rect(0, 120, 300, 200), "Info", "workspace"),
             Win::new(WinKind::Recycler, wr(&st.windows.recycler), "Recycler", "recycler-empty"),
             Win::new(WinKind::Mandelbrot, rect(st.windows.mandelbrot.x, st.windows.mandelbrot.y, crate::mandel::WIN_W, crate::mandel::WIN_H), "Mandelbrot", "file-image"),
+            Win::new(WinKind::Shell, wr(&st.windows.shell), "Shell", "miniwindow"),
             Win::new(WinKind::Alert, rect(0, 0, 380, 176), "", "alert"),
         ];
         wins[wi(WinKind::FileViewer)].min_w = 480; wins[wi(WinKind::FileViewer)].min_h = 320;
@@ -155,13 +158,14 @@ impl App {
         wins[wi(WinKind::Info)].resizable = false; wins[wi(WinKind::Info)].mini_btn = false;
         wins[wi(WinKind::Recycler)].min_w = 200; wins[wi(WinKind::Recycler)].min_h = 120;
         wins[wi(WinKind::Mandelbrot)].resizable = false;
+        wins[wi(WinKind::Shell)].min_w = 20 * crate::shell::CELL_W + SCROLL_W + 2 * crate::shell::PAD; wins[wi(WinKind::Shell)].min_h = 5 * crate::shell::CELL_H + 2 * crate::shell::PAD + TITLE_H + RESIZE_H;
         let a = &mut wins[wi(WinKind::Alert)];
         a.resizable = false; a.mini_btn = false; a.close_btn = false;
         let zoom = st.scale;
         let mut app = App {
             w: st.os_window.w, h: st.os_window.h, zoom, quit: false, redraw: true, minimize: false, cfg, post, fonts,
             home: home.clone(), roots, is_win, state: st, save_at: None, wins, key: None, zc: 0, menu_seq: 0, menus: vec![], alert: None,
-            fv: FileViewer::default(), insp: Inspector::default(), dock: Dock::default(), rec: RecWin::default(), mandel: Mandel::default(),
+            fv: FileViewer::default(), insp: Inspector::default(), dock: Dock::default(), rec: RecWin::default(), mandel: Mandel::default(), shell: Shell::default(),
             console, console_scroll: 0, console_stick: true, capture: None, mouse: pt(0, 0), focused: true,
             refresh_at: Instant::now() + Duration::from_secs(5), clipboard: vec![], now: Instant::now(),
         };
@@ -178,6 +182,7 @@ impl App {
         if self.state.windows.console.open { self.show_win(WinKind::Console); }
         if self.state.windows.recycler.open { self.show_win(WinKind::Recycler); }
         if self.state.windows.mandelbrot.open { self.show_win(WinKind::Mandelbrot); }
+        if self.state.windows.shell.open { self.show_win(WinKind::Shell); }
         if self.state.windows.file_viewer.open { self.make_key(WinKind::FileViewer); }
         self.log("ReWorkspace started".into());
         let path = self.state.windows.file_viewer.path.clone();
@@ -275,7 +280,7 @@ impl App {
     }
     fn state_win(&mut self, k: WinKind) -> Option<&mut state::WinState> {
         let w = &mut self.state.windows;
-        match k { WinKind::FileViewer => Some(&mut w.file_viewer), WinKind::Inspector => Some(&mut w.inspector), WinKind::Console => Some(&mut w.console), WinKind::Recycler => Some(&mut w.recycler), WinKind::Mandelbrot => Some(&mut w.mandelbrot), _ => None }
+        match k { WinKind::FileViewer => Some(&mut w.file_viewer), WinKind::Inspector => Some(&mut w.inspector), WinKind::Console => Some(&mut w.console), WinKind::Recycler => Some(&mut w.recycler), WinKind::Mandelbrot => Some(&mut w.mandelbrot), WinKind::Shell => Some(&mut w.shell), _ => None }
     }
     fn sync_win_state(&mut self, k: WinKind) {
         let (r, open) = { let w = self.win(k); (w.r, w.visible) };
@@ -293,10 +298,12 @@ impl App {
         if k == WinKind::Recycler { self.rec_open(); }
         if k == WinKind::Inspector { self.insp_refresh(); }
         if k == WinKind::Mandelbrot { self.mandel_ensure(); }
+        if k == WinKind::Shell { self.shell_start(); }
         self.redraw = true;
     }
     pub fn close_win(&mut self, k: WinKind) {
         if k == WinKind::Alert { return; }
+        if k == WinKind::Shell { self.shell_stop(); }
         self.win_mut(k).visible = false;
         self.sync_win_state(k);
         self.drop_key(k);
@@ -418,6 +425,10 @@ impl App {
                 self.update_trash();
             }
             Job::Mandel { seq, iters, ms } => self.mandel_done(seq, iters, ms),
+            Job::TermWake => {}
+            Job::TermTitle(t) => self.shell_title(t),
+            Job::TermWrite(s) => self.shell_write(s),
+            Job::TermExit => self.shell_exited(),
             Job::NewFolder(r) => match r {
                 Ok(p) => { self.log(format!("new folder {p}")); self.fv_navigate(&p); }
                 Err(e) => self.error("Cannot create folder", e),
@@ -565,6 +576,7 @@ impl App {
             Act::Inspector => self.show_win(WinKind::Inspector),
             Act::ConsoleWin => self.show_win(WinKind::Console),
             Act::Mandelbrot => self.show_win(WinKind::Mandelbrot),
+            Act::ShellWin => self.show_win(WinKind::Shell),
             Act::FileViewerWin => self.show_win(WinKind::FileViewer),
             Act::ArrangeFront => {
                 let mut order: Vec<WinKind> = self.wins.iter().filter(|w| w.shown() && w.kind != WinKind::Alert).map(|w| w.kind).collect();
@@ -662,6 +674,7 @@ impl App {
             WinKind::Console => { let sc = self.console_scroller(); self.scroller_down(ScrollId::Console, sc, p); }
             WinKind::Recycler => self.rec_mouse_down(p),
             WinKind::Mandelbrot => self.mandel_mouse_down(p),
+            WinKind::Shell => self.shell_mouse_down(p),
             _ => {}
         }
     }
@@ -686,6 +699,7 @@ impl App {
             ScrollId::Console => self.console_scroll,
             ScrollId::InspText => self.insp.scroll,
             ScrollId::Recycler => self.rec.scroll,
+            ScrollId::Shell => self.shell_scroller().pos,
         }
     }
     pub fn set_scroll(&mut self, id: ScrollId, v: i32) {
@@ -697,6 +711,7 @@ impl App {
             ScrollId::Console => { self.console_scroll = v; self.console_stick = v >= max; }
             ScrollId::InspText => self.insp.scroll = v,
             ScrollId::Recycler => self.rec.scroll = v,
+            ScrollId::Shell => self.shell_set_scroll(v),
         }
         self.redraw = true;
     }
@@ -706,6 +721,7 @@ impl App {
             ScrollId::Console => Some(self.console_scroller()),
             ScrollId::InspText => self.insp_text_scroller(),
             ScrollId::Recycler => Some(self.rec_scroller()),
+            ScrollId::Shell => Some(self.shell_scroller()),
         }
     }
 
@@ -723,6 +739,7 @@ impl App {
                 if region > 0 { r.w = (orig.w + dx).max(min_w); }
                 r.h = (orig.h + dy).max(min_h);
                 w.r = r;
+                if k == WinKind::Shell { self.shell_resize(); }
                 self.capture = Some(Capture::WinResize { k, start, orig, region });
             }
             Capture::MenuDrag { m, grab, moved } => {
@@ -796,6 +813,7 @@ impl App {
                 WinKind::Console => self.console_scroller().hit(p).and_then(|h| match h { ScrollHit::ArrowA => Some(Btn::ScrollArrow(ScrollId::Console, -1)), ScrollHit::ArrowB => Some(Btn::ScrollArrow(ScrollId::Console, 1)), _ => None }),
                 WinKind::Recycler => self.rec_btn_hit(p),
                 WinKind::Mandelbrot => self.mandel_btn_hit(p),
+                WinKind::Shell => self.shell_btn_hit(p),
                 _ => None,
             },
             _ => None,
@@ -820,7 +838,7 @@ impl App {
             Btn::AlertBtn(i) => self.alert_button(i),
             Btn::Tile(t) => self.dock_tile_click(t),
             Btn::Miniwin(_) => {}
-            Btn::ScrollArrow(id, d) => { let step = match id { ScrollId::Browser => crate::fileviewer::COL_PITCH, ScrollId::Col(_) => crate::fileviewer::CELL_H, _ => 18 }; self.scroll_by(id, d as i32 * step); }
+            Btn::ScrollArrow(id, d) => { let step = match id { ScrollId::Browser => crate::fileviewer::COL_PITCH, ScrollId::Col(_) => crate::fileviewer::CELL_H, ScrollId::Shell => 1, _ => 18 }; self.scroll_by(id, d as i32 * step); }
             Btn::Shelf(i) => { if let Some(p) = self.state.shelf.get(i).cloned() { self.fv_navigate(&p); } }
             Btn::PathItem(i) => { if let Some(p) = self.fv_path_components().get(i).cloned() { self.fv_navigate(&p); } }
             Btn::InspPopup => self.insp.popup_open = !self.insp.popup_open,
@@ -844,6 +862,7 @@ impl App {
             WinKind::Console => self.scroll_by(ScrollId::Console, dy),
             WinKind::Inspector => self.scroll_by(ScrollId::InspText, dy),
             WinKind::Recycler => self.scroll_by(ScrollId::Recycler, dy),
+            WinKind::Shell => self.shell_wheel(dy),
             _ => {}
         }
     }
@@ -854,6 +873,8 @@ impl App {
             match k { Key::Enter => self.alert_button(n.saturating_sub(1)), Key::Escape => self.alert_button(0), _ => {} }
             return;
         }
+        // the Shell gets every key (on Windows including Ctrl combinations); macOS Cmd shortcuts still reach the menus
+        if self.key == Some(WinKind::Shell) && self.win(WinKind::Shell).shown() && !(cfg!(target_os = "macos") && mods.cmd) { self.shell_key(k, mods); return; }
         if mods.cmd {
             if let Key::Char(c) = k {
                 if let Some(it) = find_key(&MAIN_MENU, c) {
@@ -965,6 +986,7 @@ impl App {
             WinKind::Info => self.info_draw(p, c),
             WinKind::Recycler => self.rec_draw(p, c),
             WinKind::Mandelbrot => self.mandel_draw(p, c),
+            WinKind::Shell => self.shell_draw(p, c),
             WinKind::Alert => self.alert_draw(p, c),
         }
         p.pop_clip();

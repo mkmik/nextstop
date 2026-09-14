@@ -346,13 +346,13 @@ impl App {
                 }
             }
             Key::Enter => { let sel = self.fv_deep_selection(); self.open_paths(&sel); }
-            Key::Delete => {
+            Key::Delete | Key::Backspace => {
                 let sel = self.fv_deep_selection();
                 if sel.is_empty() { return; }
                 let what = if sel.len() == 1 { format!("“{}”", sel[0].name) } else { format!("{} items", sel.len()) };
                 self.show_alert(&format!("Move {what} to the Recycler?"), "", &["Cancel", "Move"], Pending::Trash(sel.iter().map(|e| e.path.clone()).collect()));
             }
-            Key::Escape => {}
+            Key::Escape | Key::Tab | Key::Home | Key::End | Key::PageUp | Key::PageDown => {}
             Key::Char(c) => {
                 self.fv.typeahead.push(c.to_ascii_lowercase());
                 self.fv.type_until = Some(self.now + Duration::from_millis(700));

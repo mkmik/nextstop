@@ -9,6 +9,7 @@ mod icons;
 mod inspector;
 mod mandel;
 mod paint;
+mod shell;
 
 use app::{App, Button, Config, Ev, Level, Mods, SurfaceId, SurfaceInfo};
 use chrome::WinKind;
@@ -216,7 +217,7 @@ impl ApplicationHandler<Job> for Handler {
             }
             WindowEvent::ModifiersChanged(m) => {
                 let s: ModifiersState = m.state();
-                self.mods = Mods { shift: s.shift_key(), alt: s.alt_key(), cmd: if cfg!(target_os = "macos") { s.super_key() } else { s.control_key() } };
+                self.mods = Mods { shift: s.shift_key(), alt: s.alt_key(), ctrl: s.control_key(), cmd: if cfg!(target_os = "macos") { s.super_key() } else { s.control_key() } };
             }
             WindowEvent::CursorMoved { position, .. } => {
                 self.cursor = self.to_model(wid, position);
@@ -241,7 +242,8 @@ impl ApplicationHandler<Job> for Handler {
                 let key = match logical_key {
                     Key::Named(n) => match n {
                         NamedKey::ArrowUp => app::Key::Up, NamedKey::ArrowDown => app::Key::Down, NamedKey::ArrowLeft => app::Key::Left, NamedKey::ArrowRight => app::Key::Right,
-                        NamedKey::Enter => app::Key::Enter, NamedKey::Escape => app::Key::Escape, NamedKey::Backspace | NamedKey::Delete => app::Key::Delete,
+                        NamedKey::Enter => app::Key::Enter, NamedKey::Escape => app::Key::Escape, NamedKey::Backspace => app::Key::Backspace, NamedKey::Delete => app::Key::Delete,
+                        NamedKey::Tab => app::Key::Tab, NamedKey::Home => app::Key::Home, NamedKey::End => app::Key::End, NamedKey::PageUp => app::Key::PageUp, NamedKey::PageDown => app::Key::PageDown,
                         NamedKey::Space => app::Key::Char(' '), _ => return,
                     },
                     Key::Character(s) => match s.chars().next() { Some(c) => app::Key::Char(c), None => return },
@@ -355,9 +357,9 @@ fn headless(cfg: Config, script: &str, out_dir: &str) {
                 } else { eprintln!("{}: no selection/cell", parts[0]); }
             }
             "drop" => app.handle(Ev::MouseUp(cursor, Button::Left, mods)),
-            "mods" => { mods = Mods { shift: parts.contains(&"shift"), alt: parts.contains(&"alt"), cmd: parts.contains(&"cmd") }; }
+            "mods" => { mods = Mods { shift: parts.contains(&"shift"), alt: parts.contains(&"alt"), ctrl: parts.contains(&"ctrl"), cmd: parts.contains(&"cmd") }; }
             "key" => {
-                let k = match parts[1] { "up" => app::Key::Up, "down" => app::Key::Down, "left" => app::Key::Left, "right" => app::Key::Right, "enter" => app::Key::Enter, "esc" => app::Key::Escape, "del" => app::Key::Delete, s => app::Key::Char(s.chars().next().unwrap()) };
+                let k = match parts[1] { "up" => app::Key::Up, "down" => app::Key::Down, "left" => app::Key::Left, "right" => app::Key::Right, "enter" => app::Key::Enter, "esc" => app::Key::Escape, "del" => app::Key::Delete, "backspace" => app::Key::Backspace, "tab" => app::Key::Tab, "home" => app::Key::Home, "end" => app::Key::End, "pgup" => app::Key::PageUp, "pgdn" => app::Key::PageDown, s => app::Key::Char(s.chars().next().unwrap()) };
                 app.handle(Ev::Key(k, mods));
             }
             "type" => for c in parts[1..].join(" ").chars() { app.handle(Ev::Key(app::Key::Char(c), mods)); },

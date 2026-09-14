@@ -124,6 +124,7 @@ DEALINGS IN THE FONT SOFTWARE.
 | serde, serde_json | state.json | MIT OR Apache-2.0 |
 | dirs | config directory | MIT OR Apache-2.0 |
 | trash | move files to the OS trash | MIT |
+| alacritty_terminal (+ vte) | terminal emulation for the Shell window | Apache-2.0 (vte: MIT OR Apache-2.0) |
 | libc | owner lookup, local time offset | MIT OR Apache-2.0 |
 
 Transitive dependencies are listed in `Cargo.lock`; all are MIT, Apache-2.0, BSD, ISC, Zlib, Unicode or MPL-2.0 licensed.

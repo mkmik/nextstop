@@ -24,6 +24,12 @@ One line per deviation, with the reason.
 
 - Miniwindow tiles and the Recycler ("black hole") tile are optional too (`View ▸ Show Miniwindows`, `View ▸ Show Recycler Tile`), **off by default**. With miniwindows hidden, miniaturizing just hides the window; `Windows ▸ File Viewer`, the new `Windows ▸ Recycler`, and `Tools ▸ Inspector…/Console…` bring windows back. With the tile hidden, files reach the Recycler via the Delete key and `File ▸ Empty Recycler` still works.
 
+## Extra application: Shell (v0.3.2)
+
+- A terminal window named as in 1.0. The emulation (PTY, VT parser, cell grid, scrollback) is `alacritty_terminal` 0.26; we only render cells with Liberation Mono 12 px in 7×14 cells, draw the cursor (block when key, hollow when not), forward keys as xterm byte sequences (arrows honour application-cursor mode, Ctrl-letter → control codes, Alt → ESC prefix) and map the scrollback onto our scroller. Terminal colors collapse to the four grays: chromatic text becomes dark gray so it stays legible on the white background; bold is faked by drawing the glyph twice.
+- The shell starts in the home directory with `TERM=xterm-256color`; closing the window sends the event loop a shutdown (hang-up); when the child exits the title says so and the next key closes the window. Clipboard, mouse selection and mouse reporting are not implemented.
+- On macOS, Cmd shortcuts still reach the menus while the Shell is key; on Windows the Shell takes all Ctrl combinations (so Ctrl-Q does not quit while it is key).
+
 ## Extra application: Mandelbrot (v0.3.1)
 
 - Modelled on the 1.0 demo visible in the reference screenshot (white image panel, elapsed-time field, "Dithering" radio group with Standard PS / Knight's Tour / Ohlfs Mix / Error Diffusion, X/Y/Scale/Depth/Colors fields, one big button). There is no DSP, so it shows one image; the big button is Reset and a Save button writes `Mandelbrot-N.png` to the home folder.

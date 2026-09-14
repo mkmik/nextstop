@@ -54,6 +54,9 @@ to `state.json.bad` and defaults are used (the Console says so).
   windows; otherwise a miniaturized window just hides until reopened from the menus.
 - Menus: full Workspace menu tree, submenus, tear-off menus that persist, key equivalents
   (Cmd on macOS, Ctrl on Windows), right-click main menu on the background.
+- Shell (`Tools ▸ Shell…`, Cmd-T): a real terminal running your login shell, emulated by
+  `alacritty_terminal` and drawn in the four grays with a block cursor and scrollback on our
+  left-side scroller. Resize the window to change the grid; the window title follows the shell's.
 - Mandelbrot (`Tools ▸ Mandelbrot…`), after the 1.0 demo: the set in four grays with four dithering
   modes (ordered, knight's tour, noise mix, error diffusion), click / shift-click / rubber-band zoom,
   depth control, and Save to a PNG in your home folder.
@@ -72,6 +75,8 @@ to `state.json.bad` and defaults are used (the Console says so).
 - Windows app icons are extracted at 32 px and scaled; the Windows build has no embedded exe icon
   and no installer.
 - Browser view only (no Icon or Listing view), no Preferences, no search. Inspector images: PNG only.
+- Shell: no copy and paste or mouse selection yet; colors are mapped onto the four grays; on Windows,
+  Ctrl shortcuts go to the shell while it is the key window.
 - Without the backdrop there is no right-click main menu (nothing of ours to click on the desktop).
 
 ## Development

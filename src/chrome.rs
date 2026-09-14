@@ -28,12 +28,15 @@ pub fn tri_down(p: &mut Painter, x: i32, y: i32, w: i32, color: u32) {
     let half = w / 2;
     for i in 0..=half { p.fill(rect(x + i, y + i, w - 2 * i, 1), color); }
 }
-/// Hollow right-pointing triangle (submenu / folder marker), 7 px tall, 4 px wide, white inside as in 2.0.
-pub fn tri_hollow_right(p: &mut Painter, x: i32, y: i32, color: u32) {
-    p.fill(rect(x + 1, y + 2, 1, 3), WHITE); p.fill(rect(x + 2, y + 3, 1, 1), WHITE);
+/// The 2.0 branch / submenu marker, pixel for pixel (7×7): a black bar, a dark upper edge and a white
+/// lower edge around an open face — an engraved ▷ rather than an outline. On a white (selected) cell
+/// 2.0 draws the lower edge light gray so it stays visible.
+pub fn tri_hollow_right(p: &mut Painter, x: i32, y: i32, color: u32, on_white: bool) {
+    let lo = if on_white { LIGHT } else { WHITE };
     p.fill(rect(x, y, 1, 7), color);
-    for i in 0..3 { p.fill(rect(x + 1 + i, y + 1 + i, 1, 1), color); p.fill(rect(x + 1 + i, y + 5 - i, 1, 1), color); }
-    p.fill(rect(x + 3, y + 3, 1, 1), color);
+    p.fill(rect(x + 1, y, 1, 1), DARK); p.fill(rect(x + 1, y + 6, 1, 1), lo);
+    for i in 1..3 { p.fill(rect(x + 2 * i, y + i, 2, 1), DARK); p.fill(rect(x + 2 * i, y + 6 - i, 2, 1), lo); }
+    p.fill(rect(x + 6, y + 3, 1, 1), lo);
 }
 /// 14×14 title-bar button glyphs: a tiny window (miniaturize) and a 2 px X (close).
 pub fn glyph_mini(p: &mut Painter, r: Rect) { p.outline(rect(r.x + 2, r.y + 2, 10, 10), BLACK); p.fill(rect(r.x + 2, r.y + 2, 10, 3), BLACK); }
@@ -354,7 +357,7 @@ impl MenuInst {
             let fg = if disabled { DARK } else { BLACK };
             if checked { p.fill(rect(ir.x + 1, ir.y + 7, 4, 4), fg); }
             p.text_in(FontId::Regular, 12, rect(ir.x + 6, ir.y, ir.w - 34, 19), Align::Left, it.label, fg);
-            if it.sub.is_some() { tri_hollow_right(p, ir.right() - 11, ir.y + 6, fg); }
+            if it.sub.is_some() { tri_hollow_right(p, ir.right() - 12, ir.y + 6, fg, inverted); }
             else if let Some(k) = it.key {
                 let kw = p.text_width(FontId::Regular, 12, &k.to_string());
                 p.text_in(FontId::Regular, 12, rect(ir.right() - 6 - kw, ir.y, kw, 19), Align::Left, &k.to_string(), fg);

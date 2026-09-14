@@ -409,7 +409,7 @@ impl App {
             }
             p.icon(icon, r.x, r.y, 48);
             if !label.is_empty() { p.text_in(FontId::Regular, 12, rect(r.x + 24 - lw / 2 - 4, r.y + 52, lw + 8, 15), Align::Center, &label, BLACK); }
-            if i > 0 { tri_hollow_right(p, Self::col_x(&lay, i) - 5, r.y + 20, BLACK); }
+            if i > 0 { tri_hollow_right(p, Self::col_x(&lay, i) - 12, r.y + 22, BLACK, false); }
         }
         p.pop_clip();
         let pr = match pressed { Some(Btn::ScrollArrow(ScrollId::Browser, d)) => Some(if d < 0 { ScrollHit::ArrowA } else { ScrollHit::ArrowB }), _ => None };
@@ -435,9 +435,10 @@ impl App {
             let first = (scroll / CELL_H).max(0) as usize;
             for (idx, e) in col.entries.iter().enumerate().skip(first).take((parts.list.h / CELL_H + 2) as usize) {
                 let r = Self::cell_rect(parts.list, scroll, idx);
-                if col.sel.get(idx).copied().unwrap_or(false) { p.fill(r, WHITE); }
+                let sel = col.sel.get(idx).copied().unwrap_or(false);
+                if sel { p.fill(r, WHITE); }
                 let mut right = r.right() - 3;
-                if e.is_dir { right -= 6; tri_hollow_right(p, right + 1, r.y + 4, BLACK); right -= 3; }
+                if e.is_dir { tri_hollow_right(p, r.right() - 11, r.y + 4, BLACK, sel); right = r.right() - 15; }
                 if e.is_symlink { right -= 12; p.icon("symlink-badge", right, r.y + 2, 12); right -= 2; }
                 let name_w = right - (r.x + 3);
                 p.text_in(FontId::Regular, 12, rect(r.x + 3, r.y, name_w, r.h), Align::Left, &p.ellipsize_mid(FontId::Regular, 12, &e.name, name_w), BLACK);

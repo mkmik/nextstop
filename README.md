@@ -20,7 +20,8 @@ At 2× (`View ▸ Scale ▸ 2×`):
 
 > ReWorkspace is an original recreation of a *style*. It is not affiliated with, endorsed by, or
 > derived from NeXT, Apple, or the GNUstep project. No artwork, fonts, or code from NeXTSTEP,
-> OPENSTEP, macOS or GNUstep is included; every icon is an original drawing.
+> OPENSTEP, macOS or GNUstep is included; every icon is an original drawing in the grayscale,
+> dither-shaded idiom of the period.
 
 ## Download & run
 

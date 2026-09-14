@@ -59,11 +59,10 @@ pub struct Icons {
 macro_rules! icon_set {
     ($($n:literal),* $(,)?) => { [$(($n, include_str!(concat!("../assets/icons/", $n, ".svg")))),*] };
 }
-const SVGS: [(&str, &str); 31] = icon_set![
-    "alert", "application-16", "application", "arrow", "computer", "drive-net", "drive", "file-archive", "file-audio",
-    "file-code-16", "file-code", "file-generic-16", "file-generic", "file-image-16", "file-image", "file-pdf", "file-text-16",
-    "file-text", "file-video", "folder-16", "folder-open", "folder", "home", "miniwindow", "recycler-empty", "recycler-full",
-    "resize-nesw", "resize-ns", "resize-nwse", "symlink-badge", "workspace",
+const SVGS: [(&str, &str); 25] = icon_set![
+    "alert", "application", "arrow", "computer", "drive-net", "drive", "file-archive", "file-audio", "file-code", "file-generic",
+    "file-image", "file-pdf", "file-text", "file-video", "folder-open", "folder", "home", "miniwindow", "recycler-empty",
+    "recycler-full", "resize-nesw", "resize-ns", "resize-nwse", "symlink-badge", "workspace",
 ];
 
 impl Icons {

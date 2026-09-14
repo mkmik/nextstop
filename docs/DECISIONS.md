@@ -24,6 +24,12 @@ One line per deviation, with the reason.
 
 - Miniwindow tiles and the Recycler ("black hole") tile are optional too (`View ▸ Show Miniwindows`, `View ▸ Show Recycler Tile`), **off by default**. With miniwindows hidden, miniaturizing just hides the window; `Windows ▸ File Viewer`, the new `Windows ▸ Recycler`, and `Tools ▸ Inspector…/Console…` bring windows back. With the tile hidden, files reach the Recycler via the Delete key and `File ▸ Empty Recycler` still works.
 
+## Extra application: Mandelbrot (v0.3.1)
+
+- Modelled on the 1.0 demo visible in the reference screenshot (white image panel, elapsed-time field, "Dithering" radio group with Standard PS / Knight's Tour / Ohlfs Mix / Error Diffusion, X/Y/Scale/Depth/Colors fields, one big button). There is no DSP, so it shows one image; the big button is Reset and a Save button writes `Mandelbrot-N.png` to the home folder.
+- The four dithering modes are real algorithms in our own implementation: Bayer 4×4 ordered dither, an 8×8 threshold matrix generated from a knight's tour (Warnsdorff's rule), ordered dither mixed with hashed noise (an homage to Keith Ohlfs' pattern), and serpentine Floyd–Steinberg. Output is the four grays of the palette.
+- Computation runs on a background thread; the window persists its position/open state like the others. Radio buttons are drawn as 13 px sunken circles, the one non-rectangular control in the app.
+
 ## NeXTSTEP 1.0 chrome (v0.2.1)
 
 The owner asked for the look of the *first* NeXTSTEP release. Pixel geometry was measured from

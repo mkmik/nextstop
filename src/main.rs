@@ -7,6 +7,7 @@ mod fileviewer;
 mod geom;
 mod icons;
 mod inspector;
+mod mandel;
 mod paint;
 
 use app::{App, Button, Config, Ev, Level, Mods, SurfaceId, SurfaceInfo};

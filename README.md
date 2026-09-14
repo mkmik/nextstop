@@ -54,6 +54,11 @@ to `state.json.bad` and defaults are used (the Console says so).
   windows; otherwise a miniaturized window just hides until reopened from the menus.
 - Menus: full Workspace menu tree, submenus, tear-off menus that persist, key equivalents
   (Cmd on macOS, Ctrl on Windows), right-click main menu on the background.
+- Mandelbrot (`Tools ▸ Mandelbrot…`), after the 1.0 demo: the set in four grays with four dithering
+  modes (ordered, knight's tour, noise mix, error diffusion), click / shift-click / rubber-band zoom,
+  depth control, and Save to a PNG in your home folder.
+
+  ![Mandelbrot](docs/screenshots/mandelbrot.png)
 - Persistence of window, menu, Dock, Shelf, backdrop, tile visibility and scale settings.
 
 ## Known limitations

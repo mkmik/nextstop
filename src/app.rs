@@ -7,6 +7,7 @@ use crate::fileviewer::FileViewer;
 use crate::geom::{pt, rect, Pt, Rect};
 use crate::icons;
 use crate::inspector::Inspector;
+use crate::mandel::{MBtn, Mandel};
 use crate::paint::*;
 use std::rc::Rc;
 use std::sync::Arc;
@@ -37,6 +38,7 @@ pub enum Job {
     TrashList(Result<Vec<Entry>, String>),
     Done { what: String, result: Result<(), String> },
     NewFolder(Result<String, String>),
+    Mandel { seq: u64, iters: Vec<u16>, ms: u32 },
 }
 
 pub struct Config { pub demo: Option<String>, pub home_override: Option<String>, pub config_override: Option<String> }
@@ -56,7 +58,7 @@ pub enum ScrollId { Col(u64), Browser, Console, InspText, Recycler }
 pub enum Btn {
     WinMini(WinKind), WinClose(WinKind), MenuClose(usize), MenuItem(usize, usize), AlertBtn(usize),
     Tile(TileId), Miniwin(WinKind), ScrollArrow(ScrollId, i8), Shelf(usize), PathItem(usize),
-    InspPopup, InspRow(usize), InspCompute, RecBtn, Cell(usize, usize),
+    InspPopup, InspRow(usize), InspCompute, RecBtn, Cell(usize, usize), Mandel(MBtn),
 }
 
 pub enum Capture {
@@ -69,6 +71,7 @@ pub enum Capture {
     ShelfPress { idx: usize, start: Pt },
     FileDrag { paths: Vec<String>, icon: &'static str, from_shelf: Option<usize> },
     TilePress { idx: usize, start: Pt, dx: i32, dy: i32 },
+    MandelDrag { start: Pt },
 }
 
 /// One real OS window in multi-window mode (or one layer of the headless composite).
@@ -96,7 +99,7 @@ pub struct App {
     menu_seq: u64,
     pub menus: Vec<MenuInst>,
     pub alert: Option<Alert>,
-    pub fv: FileViewer, pub insp: Inspector, pub dock: Dock, pub rec: RecWin,
+    pub fv: FileViewer, pub insp: Inspector, pub dock: Dock, pub rec: RecWin, pub mandel: Mandel,
     pub console: Vec<String>, pub console_scroll: i32, console_stick: bool,
     pub capture: Option<Capture>,
     pub mouse: Pt,
@@ -106,7 +109,7 @@ pub struct App {
     pub now: Instant,
 }
 
-const KINDS: [WinKind; 6] = [WinKind::FileViewer, WinKind::Inspector, WinKind::Console, WinKind::Info, WinKind::Recycler, WinKind::Alert];
+const KINDS: [WinKind; 7] = [WinKind::FileViewer, WinKind::Inspector, WinKind::Console, WinKind::Info, WinKind::Recycler, WinKind::Mandelbrot, WinKind::Alert];
 pub fn wi(k: WinKind) -> usize { KINDS.iter().position(|x| *x == k).unwrap() }
 
 impl App {
@@ -143,6 +146,7 @@ impl App {
             Win::new(WinKind::Console, wr(&st.windows.console), "Console", "miniwindow"),
             Win::new(WinKind::Info, rect(0, 120, 300, 200), "Info", "workspace"),
             Win::new(WinKind::Recycler, wr(&st.windows.recycler), "Recycler", "recycler-empty"),
+            Win::new(WinKind::Mandelbrot, rect(st.windows.mandelbrot.x, st.windows.mandelbrot.y, crate::mandel::WIN_W, crate::mandel::WIN_H), "Mandelbrot", "file-image"),
             Win::new(WinKind::Alert, rect(0, 0, 380, 176), "", "alert"),
         ];
         wins[wi(WinKind::FileViewer)].min_w = 480; wins[wi(WinKind::FileViewer)].min_h = 320;
@@ -150,13 +154,14 @@ impl App {
         wins[wi(WinKind::Console)].min_w = 240; wins[wi(WinKind::Console)].min_h = 100;
         wins[wi(WinKind::Info)].resizable = false; wins[wi(WinKind::Info)].mini_btn = false;
         wins[wi(WinKind::Recycler)].min_w = 200; wins[wi(WinKind::Recycler)].min_h = 120;
+        wins[wi(WinKind::Mandelbrot)].resizable = false;
         let a = &mut wins[wi(WinKind::Alert)];
         a.resizable = false; a.mini_btn = false; a.close_btn = false;
         let zoom = st.scale;
         let mut app = App {
             w: st.os_window.w, h: st.os_window.h, zoom, quit: false, redraw: true, minimize: false, cfg, post, fonts,
             home: home.clone(), roots, is_win, state: st, save_at: None, wins, key: None, zc: 0, menu_seq: 0, menus: vec![], alert: None,
-            fv: FileViewer::default(), insp: Inspector::default(), dock: Dock::default(), rec: RecWin::default(),
+            fv: FileViewer::default(), insp: Inspector::default(), dock: Dock::default(), rec: RecWin::default(), mandel: Mandel::default(),
             console, console_scroll: 0, console_stick: true, capture: None, mouse: pt(0, 0), focused: true,
             refresh_at: Instant::now() + Duration::from_secs(5), clipboard: vec![], now: Instant::now(),
         };
@@ -172,6 +177,7 @@ impl App {
         if self.state.windows.inspector.open { self.show_win(WinKind::Inspector); }
         if self.state.windows.console.open { self.show_win(WinKind::Console); }
         if self.state.windows.recycler.open { self.show_win(WinKind::Recycler); }
+        if self.state.windows.mandelbrot.open { self.show_win(WinKind::Mandelbrot); }
         if self.state.windows.file_viewer.open { self.make_key(WinKind::FileViewer); }
         self.log("ReWorkspace started".into());
         let path = self.state.windows.file_viewer.path.clone();
@@ -269,7 +275,7 @@ impl App {
     }
     fn state_win(&mut self, k: WinKind) -> Option<&mut state::WinState> {
         let w = &mut self.state.windows;
-        match k { WinKind::FileViewer => Some(&mut w.file_viewer), WinKind::Inspector => Some(&mut w.inspector), WinKind::Console => Some(&mut w.console), WinKind::Recycler => Some(&mut w.recycler), _ => None }
+        match k { WinKind::FileViewer => Some(&mut w.file_viewer), WinKind::Inspector => Some(&mut w.inspector), WinKind::Console => Some(&mut w.console), WinKind::Recycler => Some(&mut w.recycler), WinKind::Mandelbrot => Some(&mut w.mandelbrot), _ => None }
     }
     fn sync_win_state(&mut self, k: WinKind) {
         let (r, open) = { let w = self.win(k); (w.r, w.visible) };
@@ -286,6 +292,7 @@ impl App {
         self.sync_win_state(k);
         if k == WinKind::Recycler { self.rec_open(); }
         if k == WinKind::Inspector { self.insp_refresh(); }
+        if k == WinKind::Mandelbrot { self.mandel_ensure(); }
         self.redraw = true;
     }
     pub fn close_win(&mut self, k: WinKind) {
@@ -410,6 +417,7 @@ impl App {
                 self.fv_refresh();
                 self.update_trash();
             }
+            Job::Mandel { seq, iters, ms } => self.mandel_done(seq, iters, ms),
             Job::NewFolder(r) => match r {
                 Ok(p) => { self.log(format!("new folder {p}")); self.fv_navigate(&p); }
                 Err(e) => self.error("Cannot create folder", e),
@@ -556,6 +564,7 @@ impl App {
             Act::RecyclerWin => self.show_win(WinKind::Recycler),
             Act::Inspector => self.show_win(WinKind::Inspector),
             Act::ConsoleWin => self.show_win(WinKind::Console),
+            Act::Mandelbrot => self.show_win(WinKind::Mandelbrot),
             Act::FileViewerWin => self.show_win(WinKind::FileViewer),
             Act::ArrangeFront => {
                 let mut order: Vec<WinKind> = self.wins.iter().filter(|w| w.shown() && w.kind != WinKind::Alert).map(|w| w.kind).collect();
@@ -652,6 +661,7 @@ impl App {
             WinKind::Inspector => self.insp_mouse_down(p),
             WinKind::Console => { let sc = self.console_scroller(); self.scroller_down(ScrollId::Console, sc, p); }
             WinKind::Recycler => self.rec_mouse_down(p),
+            WinKind::Mandelbrot => self.mandel_mouse_down(p),
             _ => {}
         }
     }
@@ -747,6 +757,7 @@ impl App {
                 let (dx, dy) = (p.x - start.x, p.y - start.y);
                 self.capture = Some(Capture::TilePress { idx, start, dx, dy });
             }
+            Capture::MandelDrag { start } => { self.mandel_drag(start, p); self.capture = Some(Capture::MandelDrag { start }); }
             other => self.capture = Some(other),
         }
         self.redraw = true;
@@ -763,6 +774,7 @@ impl App {
             Capture::ShelfPress { idx, .. } => { if self.btn_hit(p) == Some(Btn::Shelf(idx)) { self.activate(Btn::Shelf(idx)); } }
             Capture::FileDrag { paths, from_shelf, .. } => self.drop(p, paths, from_shelf, mods),
             Capture::TilePress { idx, dx, dy, .. } => self.dock_tile_release(idx, dx, dy),
+            Capture::MandelDrag { start } => self.mandel_release(start, p, mods),
         }
         self.redraw = true;
     }
@@ -783,6 +795,7 @@ impl App {
                 WinKind::Inspector => self.insp_btn_hit(p),
                 WinKind::Console => self.console_scroller().hit(p).and_then(|h| match h { ScrollHit::ArrowA => Some(Btn::ScrollArrow(ScrollId::Console, -1)), ScrollHit::ArrowB => Some(Btn::ScrollArrow(ScrollId::Console, 1)), _ => None }),
                 WinKind::Recycler => self.rec_btn_hit(p),
+                WinKind::Mandelbrot => self.mandel_btn_hit(p),
                 _ => None,
             },
             _ => None,
@@ -814,6 +827,7 @@ impl App {
             Btn::InspRow(i) => self.insp_set_mode(i),
             Btn::InspCompute => self.insp_compute(),
             Btn::RecBtn => self.rec_button(),
+            Btn::Mandel(b) => self.mandel_btn(b),
             Btn::Cell(..) => {}
         }
     }
@@ -950,6 +964,7 @@ impl App {
             WinKind::Console => self.console_draw(p, c),
             WinKind::Info => self.info_draw(p, c),
             WinKind::Recycler => self.rec_draw(p, c),
+            WinKind::Mandelbrot => self.mandel_draw(p, c),
             WinKind::Alert => self.alert_draw(p, c),
         }
         p.pop_clip();

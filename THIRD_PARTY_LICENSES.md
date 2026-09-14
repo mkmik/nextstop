@@ -114,17 +114,16 @@ DEALINGS IN THE FONT SOFTWARE.
 
 ## Rust crates
 
-| Crate | License |
-|---|---|
-| tauri, tauri-build, tauri-plugin-opener | MIT OR Apache-2.0 |
-| serde, serde_json | MIT OR Apache-2.0 |
-| dirs | MIT OR Apache-2.0 |
-| trash | MIT |
-| base64 | MIT OR Apache-2.0 |
-| libc | MIT OR Apache-2.0 |
+| Crate | Purpose | License |
+|---|---|---|
+| winit | window and input events | Apache-2.0 |
+| softbuffer | CPU framebuffer presentation | MIT OR Apache-2.0 |
+| fontdue | TrueType rasterization | MIT OR Apache-2.0 |
+| resvg, usvg, tiny-skia | SVG icon rasterization | MIT OR Apache-2.0 |
+| png | PNG decode/encode | MIT OR Apache-2.0 |
+| serde, serde_json | state.json | MIT OR Apache-2.0 |
+| dirs | config directory | MIT OR Apache-2.0 |
+| trash | move files to the OS trash | MIT |
+| libc | owner lookup, local time offset | MIT OR Apache-2.0 |
 
-Transitive dependencies are listed in `src-tauri/Cargo.lock`; all are MIT, Apache-2.0, BSD, ISC, Zlib, Unicode or MPL-2.0 licensed.
-
-## npm packages (build time only)
-
-`@tauri-apps/api`, `@tauri-apps/cli`, `@tauri-apps/plugin-opener` (MIT OR Apache-2.0), `vite` (MIT), `typescript` (Apache-2.0), `playwright` (Apache-2.0, dev only).
+Transitive dependencies are listed in `Cargo.lock`; all are MIT, Apache-2.0, BSD, ISC, Zlib, Unicode or MPL-2.0 licensed.

@@ -1,0 +1,969 @@
+//! The application: fake Screen, windows, menus, Dock… All coordinates are logical NeXT pixels.
+use crate::backend::{apps, fs, state};
+use crate::backend::fs::Entry;
+use crate::chrome::*;
+use crate::dock::{Dock, RecWin, TileId};
+use crate::fileviewer::FileViewer;
+use crate::geom::{pt, rect, Pt, Rect};
+use crate::icons;
+use crate::inspector::Inspector;
+use crate::paint::*;
+use std::rc::Rc;
+use std::sync::Arc;
+use std::time::{Duration, Instant};
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Mods { pub shift: bool, pub alt: bool, pub cmd: bool }
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Button { Left, Right, Other }
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Key { Up, Down, Left, Right, Enter, Escape, Delete, Char(char) }
+
+#[derive(Clone, Copy, Debug)]
+pub enum Ev { MouseMove(Pt), MouseDown(Pt, Button, Mods), MouseUp(Pt, Button, Mods), Wheel(Pt, f32, f32), Key(Key, Mods), Focus(bool) }
+
+/// Background job results, delivered on the UI thread.
+#[derive(Debug)]
+pub enum Job {
+    Listed { col_id: u64, seq: u64, result: Result<Vec<Entry>, String>, quiet: bool },
+    Meta { path: String, result: Result<fs::Meta, String> },
+    Text { path: String, result: Result<String, String> },
+    ImageBytes { path: String, result: Result<Vec<u8>, String> },
+    DirSize { path: String, result: Result<u64, String> },
+    AppIcon { app: String, result: Result<Vec<u8>, String> },
+    TrashState(Result<bool, String>),
+    TrashList(Result<Vec<Entry>, String>),
+    Done { what: String, result: Result<(), String> },
+    NewFolder(Result<String, String>),
+}
+
+pub struct Config { pub no_anim: bool, pub demo: Option<String>, pub home_override: Option<String>, pub config_override: Option<String> }
+
+/// What a modal alert does when its confirming (rightmost) button is pressed.
+#[derive(Clone, Debug)]
+pub enum Pending { Nothing, Trash(Vec<String>), Destroy(Vec<String>), EmptyTrash }
+
+pub struct Alert { pub message: String, pub detail: String, pub buttons: Vec<String>, pub pending: Pending, pub prev_key: Option<WinKind> }
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum ScrollId { Col(u64), Browser, Console, InspText, Recycler }
+
+/// Every press-and-release control on the Screen (§9.2).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[allow(clippy::enum_variant_names)]
+pub enum Btn {
+    WinMini(WinKind), WinClose(WinKind), MenuClose(usize), MenuItem(usize, usize), AlertBtn(usize),
+    Tile(TileId), Miniwin(WinKind), ScrollArrow(ScrollId, i8), Shelf(usize), PathItem(usize),
+    InspPopup, InspRow(usize), InspCompute, RecBtn, Cell(usize, usize),
+}
+
+pub enum Capture {
+    Press(Btn),
+    WinMove { k: WinKind, grab: Pt },
+    WinResize { k: WinKind, start: Pt, orig: Rect, region: i8 },
+    MenuDrag { m: usize, grab: Pt, moved: bool },
+    Knob { id: ScrollId, start: Pt, start_pos: i32 },
+    CellPress { col: usize, idx: usize, start: Pt },
+    ShelfPress { idx: usize, start: Pt },
+    FileDrag { paths: Vec<String>, icon: &'static str, from_shelf: Option<usize> },
+    TilePress { idx: usize, start: Pt, dx: i32, dy: i32 },
+}
+
+pub struct Anim { pub k: WinKind, pub from: Rect, pub to: Rect, pub start: Instant, pub restore: bool }
+
+pub struct App {
+    pub w: i32, pub h: i32,
+    pub zoom: u8,
+    pub quit: bool,
+    redraw: bool,
+    minimize: bool,
+    pub cfg: Config,
+    post: Arc<dyn Fn(Job) + Send + Sync>,
+    pub fonts: Rc<Fonts>,
+    pub home: String, pub roots: Vec<String>, pub is_win: bool,
+    pub state: state::State,
+    save_at: Option<Instant>,
+    pub wins: Vec<Win>,
+    pub key: Option<WinKind>,
+    zc: u32,
+    pub anim: Option<Anim>,
+    pub menus: Vec<MenuInst>,
+    pub alert: Option<Alert>,
+    pub fv: FileViewer, pub insp: Inspector, pub dock: Dock, pub rec: RecWin,
+    pub console: Vec<String>, pub console_scroll: i32, console_stick: bool,
+    pub capture: Option<Capture>,
+    pub mouse: Pt,
+    focused: bool,
+    refresh_at: Instant,
+    pub clipboard: Vec<String>,
+    pub now: Instant,
+}
+
+const KINDS: [WinKind; 6] = [WinKind::FileViewer, WinKind::Inspector, WinKind::Console, WinKind::Info, WinKind::Recycler, WinKind::Alert];
+pub fn wi(k: WinKind) -> usize { KINDS.iter().position(|x| *x == k).unwrap() }
+
+impl App {
+    pub fn new(cfg: Config, post: Arc<dyn Fn(Job) + Send + Sync>, fonts: Rc<Fonts>) -> App {
+        if let Some(h) = &cfg.home_override { fs::set_home_override(h); }
+        if let Some(c) = &cfg.config_override { apps::set_config_override(c); }
+        let home = fs::home_dir().unwrap_or_else(|_| "/".into());
+        let roots = fs::root_dirs();
+        let is_win = roots.first().is_some_and(|r| r != "/");
+        let (loaded, msg) = state::read_state(&state::state_path());
+        let fresh = loaded.is_none();
+        let mut st = loaded.unwrap_or_default();
+        let mut console = vec![];
+        let mut log = |s: String| console.push(format!("{} {s}", ts()));
+        if let Some(m) = msg { log(m); }
+        if fresh {
+            st.dock = apps::default_dock();
+            let apps_dir = if is_win { "C:\\Program Files".to_string() } else { "/Applications".into() };
+            st.shelf = vec![home.clone(), roots.first().cloned().unwrap_or("/".into()), apps_dir, icons::join(&home, "Desktop"), icons::join(&home, "Documents")];
+        }
+        if st.windows.file_viewer.path.is_empty() { st.windows.file_viewer.path = home.clone(); }
+        // §11: drop paths that no longer exist
+        for (list, what) in [(&mut st.dock, "Dock"), (&mut st.shelf, "Shelf")] {
+            let keep = fs::filter_existing(list.clone());
+            for p in list.iter().filter(|p| !keep.contains(p)) { log(format!("dropped missing {what} entry {p}")); }
+            *list = keep;
+        }
+        if fs::filter_existing(vec![st.windows.file_viewer.path.clone()]).is_empty() { st.windows.file_viewer.path = home.clone(); }
+        if st.scale != 2 { st.scale = 1; }
+        let wr = |w: &state::WinState| rect(w.x, w.y, w.w, w.h);
+        let mut wins = vec![
+            Win::new(WinKind::FileViewer, wr(&st.windows.file_viewer), "File Viewer", "folder"),
+            Win::new(WinKind::Inspector, rect(st.windows.inspector.x, st.windows.inspector.y, 272, 400), "Inspector", "miniwindow"),
+            Win::new(WinKind::Console, wr(&st.windows.console), "Console", "miniwindow"),
+            Win::new(WinKind::Info, rect(0, 120, 300, 200), "Info", "workspace"),
+            Win::new(WinKind::Recycler, wr(&st.windows.recycler), "Recycler", "recycler-empty"),
+            Win::new(WinKind::Alert, rect(0, 0, 380, 140), "ReWorkspace", "alert"),
+        ];
+        wins[wi(WinKind::FileViewer)].min_w = 480; wins[wi(WinKind::FileViewer)].min_h = 320;
+        wins[wi(WinKind::Inspector)].resizable = false;
+        wins[wi(WinKind::Console)].min_w = 240; wins[wi(WinKind::Console)].min_h = 100;
+        wins[wi(WinKind::Info)].resizable = false;
+        wins[wi(WinKind::Recycler)].min_w = 200; wins[wi(WinKind::Recycler)].min_h = 120;
+        let a = &mut wins[wi(WinKind::Alert)];
+        a.resizable = false; a.mini_btn = false; a.close_btn = false;
+        let zoom = st.scale;
+        let mut app = App {
+            w: st.os_window.w, h: st.os_window.h, zoom, quit: false, redraw: true, minimize: false, cfg, post, fonts,
+            home: home.clone(), roots, is_win, state: st, save_at: None, wins, key: None, zc: 0, anim: None, menus: vec![], alert: None,
+            fv: FileViewer::default(), insp: Inspector::default(), dock: Dock::default(), rec: RecWin::default(),
+            console, console_scroll: 0, console_stick: true, capture: None, mouse: pt(0, 0), focused: true,
+            refresh_at: Instant::now() + Duration::from_secs(5), clipboard: vec![], now: Instant::now(),
+        };
+        app.build_menus();
+        app
+    }
+
+    pub fn initial_window_size(&self) -> (i32, i32) { (self.state.os_window.w, self.state.os_window.h) }
+
+    /// Called once the window exists (or the headless harness is set up).
+    pub fn start(&mut self) {
+        if self.cfg.demo.is_some() { return; }
+        if self.state.windows.file_viewer.open { self.show_win(WinKind::FileViewer); }
+        if self.state.windows.inspector.open { self.show_win(WinKind::Inspector); }
+        if self.state.windows.console.open { self.show_win(WinKind::Console); }
+        if self.state.windows.recycler.open { self.show_win(WinKind::Recycler); }
+        if self.state.windows.file_viewer.open { self.make_key(WinKind::FileViewer); }
+        self.log("ReWorkspace started".into());
+        let path = self.state.windows.file_viewer.path.clone();
+        self.fv_navigate(&path);
+        self.update_trash();
+        self.dock_request_icons();
+    }
+
+    // ---- plumbing --------------------------------------------------------------------------
+    pub fn resize(&mut self, w: i32, h: i32) {
+        self.w = w; self.h = h;
+        for win in &mut self.wins { win.clamp(w, h); }
+        self.redraw = true;
+    }
+    pub fn request_redraw(&mut self) { self.redraw = true; }
+    pub fn take_redraw(&mut self) -> bool { std::mem::take(&mut self.redraw) }
+    pub fn wants_minimize(&mut self) -> bool { std::mem::take(&mut self.minimize) }
+    pub fn cursor_kind(&self) -> usize {
+        match &self.capture {
+            Some(Capture::WinResize { region, .. }) => return match region { -1 => 1, 0 => 2, _ => 3 },
+            Some(_) => return 0,
+            None => {}
+        }
+        if self.alert.is_none() {
+            if let Some((k, WinPart::Resize(r))) = self.win_hit(self.mouse) { if self.wins[wi(k)].shown() { return match r { -1 => 1, 0 => 2, _ => 3 }; } }
+        }
+        0
+    }
+    pub fn spawn(&self, f: impl FnOnce() -> Job + Send + 'static) {
+        let post = self.post.clone();
+        std::thread::spawn(move || post(f()));
+    }
+    pub fn log(&mut self, msg: String) {
+        let line = format!("{} {msg}", ts());
+        eprintln!("{line}");
+        self.console.push(line);
+        if self.console.len() > 500 { self.console.remove(0); }
+        self.console_stick = true;
+        self.redraw = true;
+    }
+    pub fn console_tail(&self, n: usize) -> Vec<String> { self.console.iter().rev().take(n).rev().cloned().collect() }
+    pub fn dirty(&mut self) { self.save_at = Some(self.now + Duration::from_secs(2)); }
+    pub fn save_now(&mut self) {
+        self.save_at = None;
+        if self.cfg.demo.is_some() { return; }
+        self.state.os_window = state::WH { w: (self.w as f32 * self.zoom as f32) as i32, h: (self.h as f32 * self.zoom as f32) as i32 };
+        if let Err(e) = state::save_state(&self.state) { self.log(format!("save failed: {e}")); }
+    }
+    pub fn tick(&mut self, now: Instant) {
+        self.now = now;
+        if self.save_at.is_some_and(|t| now >= t) { self.save_now(); }
+        if now >= self.refresh_at {
+            self.refresh_at = now + Duration::from_secs(5);
+            if self.focused && self.cfg.demo.is_none() { self.fv_refresh(); self.update_trash(); }
+        }
+        if self.fv.type_until.is_some_and(|t| now >= t) { self.fv.type_until = None; self.fv.typeahead.clear(); }
+        if self.dock.pressed_until.is_some_and(|(_, t)| now >= t) { self.dock.pressed_until = None; self.redraw = true; }
+        if let Some(a) = &self.anim {
+            self.redraw = true;
+            if now >= a.start + Duration::from_millis(120) { let a = self.anim.take().unwrap(); self.finish_anim(a); }
+        }
+    }
+    pub fn next_deadline(&self) -> Option<Instant> {
+        let mut t: Option<Instant> = None;
+        let mut add = |x: Option<Instant>| if let Some(x) = x { t = Some(t.map_or(x, |c| c.min(x))) };
+        add(self.save_at);
+        add(Some(self.refresh_at));
+        add(self.fv.type_until);
+        add(self.dock.pressed_until.map(|(_, t)| t));
+        if self.anim.is_some() { add(Some(self.now + Duration::from_millis(16))); }
+        t
+    }
+    pub fn debug_query(&self, q: &str) -> String {
+        match q {
+            "title" => self.wins[wi(WinKind::FileViewer)].title.clone(),
+            "dock" => self.state.dock.join(","),
+            "shelf" => self.state.shelf.join(","),
+            "menus" => self.menus.iter().map(|m| format!("{}@{},{}:{:?}", m.title, m.pos.x, m.pos.y, m.kind)).collect::<Vec<_>>().join(" "),
+            "key" => format!("{:?}", self.key),
+            "selection" => self.fv_deep_selection().iter().map(|e| e.path.clone()).collect::<Vec<_>>().join(","),
+            "cols" => self.fv.cols.iter().map(|c| format!("{}({})", c.dir.clone().unwrap_or("Computer".into()), c.entries.len())).collect::<Vec<_>>().join(" | "),
+            "state" => serde_json::to_string(&self.state).unwrap_or_default(),
+            "selrect" => { // rect of the first selected cell in the focused column, for coordinate-free drag tests
+                let lay = self.fv_layout();
+                let ci = self.fv.focus;
+                match self.fv.cols.get(ci).and_then(|c| c.sel.iter().position(|s| *s)) {
+                    Some(idx) => { let (list, sc) = self.fv_col_list(&lay, ci); let r = rect(list.x, list.y + idx as i32 * crate::fileviewer::CELL_H - sc.map_or(0, |s| s.pos), list.w, crate::fileviewer::CELL_H); format!("{} {} {} {}", r.x, r.y, r.w, r.h) }
+                    None => "none".into(),
+                }
+            }
+            _ => "?".into(),
+        }
+    }
+
+    // ---- windows -----------------------------------------------------------------------------
+    pub fn win(&self, k: WinKind) -> &Win { &self.wins[wi(k)] }
+    pub fn win_mut(&mut self, k: WinKind) -> &mut Win { &mut self.wins[wi(k)] }
+    pub fn front(&mut self, k: WinKind) { self.zc += 1; self.wins[wi(k)].z = self.zc; self.redraw = true; }
+    pub fn make_key(&mut self, k: WinKind) {
+        self.front(k);
+        if self.key != Some(k) { self.key = Some(k); }
+    }
+    fn state_win(&mut self, k: WinKind) -> Option<&mut state::WinState> {
+        let w = &mut self.state.windows;
+        match k { WinKind::FileViewer => Some(&mut w.file_viewer), WinKind::Inspector => Some(&mut w.inspector), WinKind::Console => Some(&mut w.console), WinKind::Recycler => Some(&mut w.recycler), _ => None }
+    }
+    fn sync_win_state(&mut self, k: WinKind) {
+        let (r, open) = { let w = self.win(k); (w.r, w.visible) };
+        if let Some(s) = self.state_win(k) { s.x = r.x; s.y = r.y; s.w = r.w; s.h = r.h; s.open = open; self.dirty(); }
+    }
+    pub fn show_win(&mut self, k: WinKind) {
+        if self.win(k).mini.is_some() { self.restore(k); }
+        let (w, h) = (self.w, self.h);
+        let win = self.win_mut(k);
+        win.visible = true;
+        win.clamp(w, h);
+        if k == WinKind::Info { win.r.x = (w - win.r.w) / 2; }
+        self.make_key(k);
+        self.sync_win_state(k);
+        if k == WinKind::Recycler { self.rec_open(); }
+        if k == WinKind::Inspector { self.insp_refresh(); }
+        self.redraw = true;
+    }
+    pub fn close_win(&mut self, k: WinKind) {
+        if k == WinKind::Alert { return; }
+        self.win_mut(k).visible = false;
+        self.sync_win_state(k);
+        self.drop_key(k);
+        self.redraw = true;
+    }
+    /// Key window went away: give key to the topmost remaining window.
+    fn drop_key(&mut self, k: WinKind) {
+        if self.key != Some(k) { return; }
+        self.key = self.wins.iter().filter(|w| w.shown() && w.kind != k && w.kind != WinKind::Alert).max_by_key(|w| w.z).map(|w| w.kind);
+    }
+    pub fn miniaturize(&mut self, k: WinKind) {
+        if self.win(k).mini.is_some() || !self.win(k).visible || k == WinKind::Alert { return; }
+        let slot = self.wins.iter().filter(|w| w.mini.is_some()).count();
+        let to = miniwindow_rect(slot, self.h);
+        let from = self.win(k).r;
+        self.win_mut(k).mini = Some(slot);
+        self.drop_key(k);
+        if self.state.animations && !self.cfg.no_anim { self.anim = Some(Anim { k, from, to, start: self.now, restore: false }); }
+        self.redraw = true;
+    }
+    pub fn restore(&mut self, k: WinKind) {
+        let Some(slot) = self.win(k).mini else { return };
+        let from = miniwindow_rect(slot, self.h);
+        self.win_mut(k).mini = None;
+        // re-pack remaining miniwindows
+        let mut n = 0;
+        for w in &mut self.wins { if w.mini.is_some() { w.mini = Some(n); n += 1; } }
+        if self.state.animations && !self.cfg.no_anim { let to = self.win(k).r; self.anim = Some(Anim { k, from, to, start: self.now, restore: true }); }
+        self.make_key(k);
+        self.redraw = true;
+    }
+    fn finish_anim(&mut self, _a: Anim) { self.redraw = true; }
+    /// Topmost shown window under `p` (alert excluded unless open).
+    pub fn win_hit(&self, p: Pt) -> Option<(WinKind, WinPart)> {
+        let mut best: Option<&Win> = None;
+        for w in &self.wins {
+            if !w.shown() || w.kind == WinKind::Alert || !w.r.contains(p) { continue; }
+            if best.is_none_or(|b| w.z > b.z) { best = Some(w); }
+        }
+        best.and_then(|w| w.hit(p).map(|part| (w.kind, part)))
+    }
+    pub fn content_rect(&self, k: WinKind) -> Rect { self.win(k).content() }
+
+    // ---- alert (§7.11) ------------------------------------------------------------------------
+    pub fn show_alert(&mut self, message: &str, detail: &str, buttons: &[&str], pending: Pending) {
+        let prev_key = self.key;
+        let (w, h) = (self.w, self.h);
+        let a = self.win_mut(WinKind::Alert);
+        a.r = rect((w - 380) / 2, (h - 140) / 2, 380, 140);
+        a.visible = true;
+        self.alert = Some(Alert { message: message.into(), detail: detail.into(), buttons: buttons.iter().map(|s| s.to_string()).collect(), pending, prev_key });
+        self.capture = None;
+        self.make_key(WinKind::Alert);
+        self.redraw = true;
+    }
+    fn alert_button(&mut self, i: usize) {
+        let Some(a) = self.alert.take() else { return };
+        self.win_mut(WinKind::Alert).visible = false;
+        self.key = a.prev_key.filter(|k| self.win(*k).shown());
+        if i == a.buttons.len() - 1 && a.buttons.len() > 1 {
+            match a.pending {
+                Pending::Nothing => {}
+                Pending::Trash(paths) => self.trash_paths(paths),
+                Pending::Destroy(paths) => self.run_fs(format!("destroy {} item(s)", paths.len()), move || fs::destroy_paths(paths)),
+                Pending::EmptyTrash => { self.run_fs("emptied the Recycler".into(), fs::empty_trash); }
+            }
+        }
+        self.redraw = true;
+    }
+    pub fn error(&mut self, message: &str, detail: String) { self.log(format!("{message}: {detail}")); self.show_alert(message, &detail, &["OK"], Pending::Nothing); }
+    fn alert_buttons(&self) -> Vec<Rect> {
+        let Some(a) = &self.alert else { return vec![] };
+        let c = self.content_rect(WinKind::Alert);
+        let n = a.buttons.len() as i32;
+        (0..n).map(|i| rect(c.right() - 12 - (n - i) * 88 + 8, c.bottom() - 10 - 24, 80, 24)).collect()
+    }
+
+    // ---- fs operations ------------------------------------------------------------------------
+    /// Run a mutating filesystem command off-thread; log the outcome and refresh.
+    pub fn run_fs(&mut self, what: String, f: impl FnOnce() -> Result<(), String> + Send + 'static) {
+        self.spawn(move || Job::Done { what, result: f() });
+    }
+    pub fn trash_paths(&mut self, paths: Vec<String>) {
+        let n = paths.len();
+        self.run_fs(format!("moved {n} item(s) to the Recycler"), move || fs::trash_paths(paths));
+    }
+    pub fn open_paths(&mut self, entries: &[Entry]) {
+        for e in entries.iter().filter(|e| !e.is_dir) {
+            self.log(format!("open {}", e.path));
+            if let Err(err) = apps::open_path(&e.path) { self.error("Cannot open", err); }
+        }
+    }
+    pub fn update_trash(&mut self) { self.spawn(|| Job::TrashState(fs::trash_is_empty())); }
+
+    pub fn on_job(&mut self, j: Job) {
+        self.redraw = true;
+        match j {
+            Job::Listed { col_id, seq, result, quiet } => self.fv_listed(col_id, seq, result, quiet),
+            Job::Meta { path, result } => self.insp_meta(path, result),
+            Job::Text { path, result } => self.insp_text(path, result),
+            Job::ImageBytes { path, result } => self.insp_image(path, result),
+            Job::DirSize { path, result } => self.insp_dir_size(path, result),
+            Job::AppIcon { app, result } => self.dock_icon(app, result),
+            Job::TrashState(r) => self.dock_trash_state(r),
+            Job::TrashList(r) => { self.rec.items = Some(r); }
+            Job::Done { what, result } => {
+                match result { Ok(()) => self.log(what), Err(e) => self.error("Operation failed", e) }
+                self.fv_refresh();
+                self.update_trash();
+            }
+            Job::NewFolder(r) => match r {
+                Ok(p) => { self.log(format!("new folder {p}")); self.fv_navigate(&p); }
+                Err(e) => self.error("Cannot create folder", e),
+            },
+        }
+    }
+
+    // ---- menus (§7.3) -------------------------------------------------------------------------
+    fn build_menus(&mut self) {
+        let w = MenuInst::width(&self.fonts, &MAIN_MENU, "Workspace", true);
+        self.menus.push(MenuInst { title: "Workspace".into(), items: &MAIN_MENU, path: vec![], pos: pt(self.state.menu_pos.x, self.state.menu_pos.y), w, kind: MenuKind::Main, open_item: None });
+        for t in self.state.torn_menus.clone() {
+            if let Some(items) = resolve_path(&t.path) {
+                let title = t.path.last().cloned().unwrap_or_default();
+                let w = MenuInst::width(&self.fonts, items, &title, false);
+                self.menus.push(MenuInst { title, items, path: t.path.clone(), pos: pt(t.x, t.y), w, kind: MenuKind::Torn, open_item: None });
+            }
+        }
+    }
+    pub fn item_state(&self, it: &ItemDef) -> (bool, bool) {
+        match it.act {
+            Act::Disabled => (true, false),
+            Act::Paste => (self.clipboard.is_empty(), false),
+            Act::EmptyRecycler => (!cfg!(target_os = "macos"), false),
+            Act::ViewBrowser => (false, true),
+            Act::Scale1 => (false, self.zoom == 1),
+            Act::Scale2 => (false, self.zoom == 2),
+            Act::ShowHidden => (false, self.state.show_hidden),
+            _ => (false, false),
+        }
+    }
+    /// Close attached submenus everywhere and destroy popups; torn-off menus stay (§9.7).
+    fn close_submenus(&mut self) {
+        self.menus.retain(|m| matches!(m.kind, MenuKind::Main | MenuKind::Torn));
+        for m in &mut self.menus { m.open_item = None; }
+        self.redraw = true;
+    }
+    fn close_children_of(&mut self, m: usize) {
+        // remove every Sub menu whose ancestry includes m
+        while let Some(i) = self.menus.iter().position(|x| matches!(x.kind, MenuKind::Sub { parent, .. } if parent == m)) {
+            self.close_children_of(i);
+            self.menus.remove(i);
+            for x in &mut self.menus { if let MenuKind::Sub { parent, .. } = &mut x.kind { if *parent > i { *parent -= 1; } } }
+        }
+        self.menus[m].open_item = None;
+    }
+    fn open_submenu(&mut self, m: usize, item: usize) {
+        if self.menus[m].open_item == Some(item) { self.close_children_of(m); return; }
+        self.close_children_of(m);
+        let it = &self.menus[m].items[item];
+        let Some(items) = it.sub else { return };
+        let mut path = self.menus[m].path.clone();
+        path.push(it.label.to_string());
+        if let Some(t) = self.menus.iter().position(|x| x.kind == MenuKind::Torn && x.path == path) {
+            let t = self.menus.remove(t); self.menus.push(t); // already torn off: bring it forward
+            return;
+        }
+        let title = it.label.to_string();
+        let w = MenuInst::width(&self.fonts, items, &title, false);
+        self.menus[m].open_item = Some(item);
+        let popup = self.menus[m].kind == MenuKind::Popup;
+        let mut sub = MenuInst { title, items, path, pos: pt(0, 0), w, kind: MenuKind::Sub { parent: m, item }, open_item: None };
+        if popup { sub.kind = MenuKind::Sub { parent: m, item }; }
+        self.menus.push(sub);
+        let i = self.menus.len() - 1;
+        self.reattach(i);
+    }
+    fn reattach(&mut self, i: usize) {
+        if let MenuKind::Sub { parent, item } = self.menus[i].kind {
+            let p = &self.menus[parent];
+            let ir = p.item_rect(item);
+            self.menus[i].pos = pt(p.pos.x + p.w, ir.y);
+        }
+        let children: Vec<usize> = self.menus.iter().enumerate().filter(|(_, x)| matches!(x.kind, MenuKind::Sub { parent, .. } if parent == i)).map(|(j, _)| j).collect();
+        for c in children { self.reattach(c); }
+    }
+    fn tear_off(&mut self, i: usize) {
+        if let MenuKind::Sub { parent, .. } = self.menus[i].kind {
+            self.menus[parent].open_item = None;
+            self.menus[i].kind = MenuKind::Torn;
+            let path = self.menus[i].path.clone();
+            let pos = self.menus[i].pos;
+            if !self.state.torn_menus.iter().any(|t| t.path == path) { self.state.torn_menus.push(state::TornMenu { path, x: pos.x, y: pos.y }); }
+            self.dirty();
+        }
+    }
+    fn menu_moved(&mut self, i: usize) {
+        let m = &self.menus[i];
+        match m.kind {
+            MenuKind::Main => { self.state.menu_pos = state::XY { x: m.pos.x, y: m.pos.y }; self.dirty(); }
+            MenuKind::Torn => { let (path, pos) = (m.path.clone(), m.pos); if let Some(t) = self.state.torn_menus.iter_mut().find(|t| t.path == path) { t.x = pos.x; t.y = pos.y; } self.dirty(); }
+            _ => {}
+        }
+    }
+    fn close_torn(&mut self, i: usize) {
+        self.close_children_of(i);
+        let path = self.menus[i].path.clone();
+        self.menus.remove(i);
+        for x in &mut self.menus { if let MenuKind::Sub { parent, .. } = &mut x.kind { if *parent > i { *parent -= 1; } } }
+        self.state.torn_menus.retain(|t| t.path != path);
+        self.dirty();
+    }
+    fn popup_menu(&mut self, p: Pt) {
+        self.close_submenus();
+        let w = MenuInst::width(&self.fonts, &MAIN_MENU, "Workspace", true);
+        self.menus.push(MenuInst { title: "Workspace".into(), items: &MAIN_MENU, path: vec![], pos: p, w, kind: MenuKind::Popup, open_item: None });
+    }
+    /// Topmost menu part under `p`.
+    fn menu_hit(&self, p: Pt) -> Option<(usize, MenuPart)> {
+        self.menus.iter().enumerate().rev().find_map(|(i, m)| m.hit(p).map(|part| (i, part)))
+    }
+    pub fn act(&mut self, a: Act) {
+        match a {
+            Act::None | Act::Disabled => {}
+            Act::InfoPanel => self.show_win(WinKind::Info),
+            Act::Open => { let sel = self.fv_deep_selection(); self.open_paths(&sel); }
+            Act::NewFolder => { let dir = self.fv_current_dir(); self.spawn(move || Job::NewFolder(fs::new_folder(dir))); }
+            Act::Duplicate => { let paths = self.fv_selected_paths(); if !paths.is_empty() { self.run_fs(format!("duplicated {} item(s)", paths.len()), move || fs::duplicate_paths(paths).map(|_| ())); } }
+            Act::Destroy => {
+                let sel = self.fv_deep_selection();
+                if sel.is_empty() { return; }
+                let what = if sel.len() == 1 { format!("“{}”", sel[0].name) } else { format!("{} items", sel.len()) };
+                self.show_alert(&format!("Destroy {what}?"), "Destroy permanently deletes the file. Continue?", &["Cancel", "Destroy"], Pending::Destroy(sel.iter().map(|e| e.path.clone()).collect()));
+            }
+            Act::EmptyRecycler => self.show_alert("Are you sure you want to empty the Recycler?", "Its contents will be permanently deleted.", &["Cancel", "Empty"], Pending::EmptyTrash),
+            Act::Copy => { self.clipboard = self.fv_selected_paths(); let n = self.clipboard.len(); self.log(format!("copied {n} path(s)")); }
+            Act::Paste => { let (paths, dir) = (self.clipboard.clone(), self.fv_current_dir()); if !paths.is_empty() { self.run_fs(format!("pasted {} item(s) into {dir}", paths.len()), move || fs::copy_paths(paths, dir)); } }
+            Act::SelectAll => self.fv_select_all(),
+            Act::CheckDisks => self.fv_refresh(),
+            Act::ViewBrowser => {}
+            Act::Scale1 => self.set_zoom(1),
+            Act::Scale2 => self.set_zoom(2),
+            Act::ShowHidden => { self.state.show_hidden = !self.state.show_hidden; self.dirty(); self.fv_refresh(); }
+            Act::Inspector => self.show_win(WinKind::Inspector),
+            Act::ConsoleWin => self.show_win(WinKind::Console),
+            Act::FileViewerWin => self.show_win(WinKind::FileViewer),
+            Act::ArrangeFront => {
+                let mut order: Vec<WinKind> = self.wins.iter().filter(|w| w.shown() && w.kind != WinKind::Alert).map(|w| w.kind).collect();
+                order.sort_by_key(|k| self.win(*k).z);
+                for k in order { self.front(k); }
+            }
+            Act::Miniaturize => { if let Some(k) = self.key { self.miniaturize(k); } }
+            Act::CloseWin => { if let Some(k) = self.key { self.close_win(k); } }
+            Act::Hide => self.minimize = true,
+            Act::Quit => { self.save_now(); self.quit = true; }
+        }
+        self.redraw = true;
+    }
+    fn set_zoom(&mut self, z: u8) { self.zoom = z; self.state.scale = z; self.dirty(); }
+
+    // ---- events -------------------------------------------------------------------------------
+    pub fn handle(&mut self, ev: Ev) {
+        self.redraw = true;
+        match ev {
+            Ev::Focus(f) => { self.focused = f; if f { self.fv_refresh(); } }
+            Ev::MouseMove(p) => { self.mouse = p; self.mouse_move(p); }
+            Ev::MouseDown(p, b, m) => { self.mouse = p; self.mouse_down(p, b, m); }
+            Ev::MouseUp(p, b, m) => { self.mouse = p; self.mouse_up(p, b, m); }
+            Ev::Wheel(p, dx, dy) => self.wheel(p, dx, dy),
+            Ev::Key(k, m) => self.key_down(k, m),
+        }
+    }
+
+    fn mouse_down(&mut self, p: Pt, b: Button, mods: Mods) {
+        if self.capture.is_some() { return; }
+        if self.cfg.demo.is_some() { return; }
+        if self.alert.is_some() {
+            if let Some(i) = self.alert_buttons().iter().position(|r| r.contains(p)) { self.capture = Some(Capture::Press(Btn::AlertBtn(i))); }
+            else if self.win(WinKind::Alert).title_bar().contains(p) { let r = self.win(WinKind::Alert).r; self.capture = Some(Capture::WinMove { k: WinKind::Alert, grab: pt(p.x - r.x, p.y - r.y) }); }
+            return;
+        }
+        // menus first (they float above everything)
+        if let Some((m, part)) = self.menu_hit(p) {
+            if b != Button::Left { return; }
+            match part {
+                MenuPart::Close => self.capture = Some(Capture::Press(Btn::MenuClose(m))),
+                MenuPart::Title => { let pos = self.menus[m].pos; let t = self.menus.remove(m); self.menus.push(t); let m = self.menus.len() - 1; self.fix_parents_after_move(); self.capture = Some(Capture::MenuDrag { m, grab: pt(p.x - pos.x, p.y - pos.y), moved: false }); }
+                MenuPart::Item(i) => {
+                    let it = &self.menus[m].items[i];
+                    let (disabled, _) = self.item_state(it);
+                    if disabled { return; }
+                    if it.sub.is_some() { self.open_submenu(m, i); } else { self.capture = Some(Capture::Press(Btn::MenuItem(m, i))); }
+                }
+            }
+            return;
+        }
+        self.close_submenus();
+        if b == Button::Right {
+            if self.tile_hit(p).is_none() && self.win_hit(p).is_none() { self.popup_menu(p); }
+            return;
+        }
+        if b != Button::Left { return; }
+        if let Some(t) = self.tile_hit(p) {
+            match t {
+                Btn::Tile(TileId::App(i)) => self.capture = Some(Capture::TilePress { idx: i, start: p, dx: 0, dy: 0 }),
+                Btn::Miniwin(k) => {
+                    let now = self.now;
+                    if self.dock.last_mini_click.is_some_and(|(kk, t)| kk == k && now.duration_since(t) < Duration::from_millis(400)) { self.dock.last_mini_click = None; self.restore(k); }
+                    else { self.dock.last_mini_click = Some((k, now)); }
+                }
+                other => self.capture = Some(Capture::Press(other)),
+            }
+            return;
+        }
+        if let Some((k, part)) = self.win_hit(p) {
+            self.make_key(k);
+            match part {
+                WinPart::MiniBtn => self.capture = Some(Capture::Press(Btn::WinMini(k))),
+                WinPart::CloseBtn => self.capture = Some(Capture::Press(Btn::WinClose(k))),
+                WinPart::Title => { let r = self.win(k).r; self.capture = Some(Capture::WinMove { k, grab: pt(p.x - r.x, p.y - r.y) }); }
+                WinPart::Resize(region) => self.capture = Some(Capture::WinResize { k, start: p, orig: self.win(k).r, region }),
+                WinPart::Content => self.content_down(k, p, mods),
+            }
+        }
+    }
+    fn fix_parents_after_move(&mut self) {
+        // after moving a menu to the end of the vector, Sub parents referring to indices must be recomputed by path
+        let paths: Vec<Vec<String>> = self.menus.iter().map(|m| m.path.clone()).collect();
+        for i in 0..self.menus.len() {
+            if let MenuKind::Sub { item, .. } = self.menus[i].kind {
+                let mut parent_path = self.menus[i].path.clone(); parent_path.pop();
+                if let Some(pi) = paths.iter().position(|p| *p == parent_path) { self.menus[i].kind = MenuKind::Sub { parent: pi, item }; }
+            }
+        }
+    }
+    fn content_down(&mut self, k: WinKind, p: Pt, mods: Mods) {
+        match k {
+            WinKind::FileViewer => self.fv_mouse_down(p, mods),
+            WinKind::Inspector => self.insp_mouse_down(p),
+            WinKind::Console => { let sc = self.console_scroller(); self.scroller_down(ScrollId::Console, sc, p); }
+            WinKind::Recycler => self.rec_mouse_down(p),
+            _ => {}
+        }
+    }
+    /// Shared scroller press handling: arrows are pressables, the knob is a drag, the track pages.
+    pub fn scroller_down(&mut self, id: ScrollId, sc: Scroller, p: Pt) -> bool {
+        let Some(hit) = sc.hit(p) else { return false };
+        match hit {
+            ScrollHit::ArrowA => self.capture = Some(Capture::Press(Btn::ScrollArrow(id, -1))),
+            ScrollHit::ArrowB => self.capture = Some(Capture::Press(Btn::ScrollArrow(id, 1))),
+            ScrollHit::Knob => self.capture = Some(Capture::Knob { id, start: p, start_pos: sc.pos }),
+            ScrollHit::PageBack => self.scroll_by(id, -sc.visible),
+            ScrollHit::PageFwd => self.scroll_by(id, sc.visible),
+        }
+        true
+    }
+    pub fn scroll_by(&mut self, id: ScrollId, d: i32) { let cur = self.scroll_pos(id); self.set_scroll(id, cur + d); }
+    pub fn scroll_pos(&self, id: ScrollId) -> i32 {
+        match id {
+            ScrollId::Col(cid) => self.fv.cols.iter().find(|c| c.id == cid).map_or(0, |c| c.scroll),
+            ScrollId::Browser => self.fv.hscroll,
+            ScrollId::Console => self.console_scroll,
+            ScrollId::InspText => self.insp.scroll,
+            ScrollId::Recycler => self.rec.scroll,
+        }
+    }
+    pub fn set_scroll(&mut self, id: ScrollId, v: i32) {
+        let max = self.scroller_for(id).map_or(0, |s| s.max_pos());
+        let v = v.clamp(0, max);
+        match id {
+            ScrollId::Col(cid) => { if let Some(c) = self.fv.cols.iter_mut().find(|c| c.id == cid) { c.scroll = v; } }
+            ScrollId::Browser => self.fv.hscroll = v,
+            ScrollId::Console => { self.console_scroll = v; self.console_stick = v >= max; }
+            ScrollId::InspText => self.insp.scroll = v,
+            ScrollId::Recycler => self.rec.scroll = v,
+        }
+        self.redraw = true;
+    }
+    fn scroller_for(&self, id: ScrollId) -> Option<Scroller> {
+        match id {
+            ScrollId::Col(cid) => self.fv_col_scroller(cid),
+            ScrollId::Browser => Some(self.fv_layout().hscroll),
+            ScrollId::Console => Some(self.console_scroller()),
+            ScrollId::InspText => self.insp_text_scroller(),
+            ScrollId::Recycler => Some(self.rec_scroller()),
+        }
+    }
+
+    fn mouse_move(&mut self, p: Pt) {
+        let Some(cap) = self.capture.take() else { return };
+        let (sw, sh) = (self.w, self.h);
+        match cap {
+            Capture::WinMove { k, grab } => { let w = self.win_mut(k); w.r.x = p.x - grab.x; w.r.y = p.y - grab.y; w.clamp(sw, sh); self.capture = Some(Capture::WinMove { k, grab }); }
+            Capture::WinResize { k, start, orig, region } => {
+                let (dx, dy) = (p.x - start.x, p.y - start.y);
+                let (min_w, min_h) = { let w = self.win(k); (w.min_w, w.min_h) };
+                let w = self.win_mut(k);
+                let mut r = orig;
+                if region < 0 { r.w = (orig.w - dx).max(min_w); r.x = orig.x + (orig.w - r.w); }
+                if region > 0 { r.w = (orig.w + dx).max(min_w); }
+                r.h = (orig.h + dy).max(min_h);
+                w.r = r;
+                self.capture = Some(Capture::WinResize { k, start, orig, region });
+            }
+            Capture::MenuDrag { m, grab, moved } => {
+                let moved_now = moved || (p.x - grab.x - self.menus[m].pos.x).abs() + (p.y - grab.y - self.menus[m].pos.y).abs() > 4;
+                if moved_now {
+                    if matches!(self.menus[m].kind, MenuKind::Sub { .. }) { self.tear_off(m); }
+                    self.menus[m].pos = pt(p.x - grab.x, p.y - grab.y);
+                    self.reattach(m);
+                }
+                self.capture = Some(Capture::MenuDrag { m, grab, moved: moved_now });
+            }
+            Capture::Knob { id, start, start_pos } => {
+                if let Some(sc) = self.scroller_for(id) {
+                    let d = if sc.vertical { p.y - start.y } else { p.x - start.x };
+                    let v = sc.drag_pos(start_pos, d);
+                    self.set_scroll(id, v);
+                }
+                self.capture = Some(Capture::Knob { id, start, start_pos });
+            }
+            Capture::CellPress { col, idx, start } => {
+                if (p.x - start.x).abs().max((p.y - start.y).abs()) > 4 { self.fv.last_click = None; self.fv_start_drag(col); }
+                else { self.capture = Some(Capture::CellPress { col, idx, start }); }
+            }
+            Capture::ShelfPress { idx, start } => {
+                if (p.x - start.x).abs().max((p.y - start.y).abs()) > 4 {
+                    let path = self.state.shelf[idx].clone();
+                    let icon = self.fv_path_icon(&path);
+                    self.capture = Some(Capture::FileDrag { paths: vec![path], icon, from_shelf: Some(idx) });
+                } else { self.capture = Some(Capture::ShelfPress { idx, start }); }
+            }
+            Capture::TilePress { idx, start, .. } => {
+                let (dx, dy) = (p.x - start.x, p.y - start.y);
+                self.capture = Some(Capture::TilePress { idx, start, dx, dy });
+            }
+            other => self.capture = Some(other),
+        }
+        self.redraw = true;
+    }
+
+    fn mouse_up(&mut self, p: Pt, _b: Button, mods: Mods) {
+        let Some(cap) = self.capture.take() else { return };
+        match cap {
+            Capture::Press(btn) => { if self.btn_hit(p) == Some(btn) { self.activate(btn); } }
+            Capture::WinMove { k, .. } => self.sync_win_state(k),
+            Capture::WinResize { k, .. } => self.sync_win_state(k),
+            Capture::MenuDrag { m, moved, .. } => { if moved { self.menu_moved(m); } }
+            Capture::CellPress { .. } | Capture::Knob { .. } => {}
+            Capture::ShelfPress { idx, .. } => { if self.btn_hit(p) == Some(Btn::Shelf(idx)) { self.activate(Btn::Shelf(idx)); } }
+            Capture::FileDrag { paths, from_shelf, .. } => self.drop(p, paths, from_shelf, mods),
+            Capture::TilePress { idx, dx, dy, .. } => self.dock_tile_release(idx, dx, dy),
+        }
+        self.redraw = true;
+    }
+
+    /// Pressable under `p`, honoring z-order (alert → menus → tiles → windows).
+    pub fn btn_hit(&self, p: Pt) -> Option<Btn> {
+        if self.alert.is_some() { return self.alert_buttons().iter().position(|r| r.contains(p)).map(Btn::AlertBtn); }
+        if let Some((m, part)) = self.menu_hit(p) {
+            return match part { MenuPart::Close => Some(Btn::MenuClose(m)), MenuPart::Item(i) => Some(Btn::MenuItem(m, i)), MenuPart::Title => None };
+        }
+        if let Some(t) = self.tile_hit(p) { return Some(t); }
+        let (k, part) = self.win_hit(p)?;
+        match part {
+            WinPart::MiniBtn => Some(Btn::WinMini(k)),
+            WinPart::CloseBtn => Some(Btn::WinClose(k)),
+            WinPart::Content => match k {
+                WinKind::FileViewer => self.fv_btn_hit(p),
+                WinKind::Inspector => self.insp_btn_hit(p),
+                WinKind::Console => self.console_scroller().hit(p).and_then(|h| match h { ScrollHit::ArrowA => Some(Btn::ScrollArrow(ScrollId::Console, -1)), ScrollHit::ArrowB => Some(Btn::ScrollArrow(ScrollId::Console, 1)), _ => None }),
+                WinKind::Recycler => self.rec_btn_hit(p),
+                _ => None,
+            },
+            _ => None,
+        }
+    }
+    /// Pressed-state visual: only while the mouse is still over the pressed control.
+    pub fn pressed(&self) -> Option<Btn> {
+        match &self.capture { Some(Capture::Press(b)) if self.btn_hit(self.mouse) == Some(*b) => Some(*b), _ => None }
+    }
+    fn activate(&mut self, btn: Btn) {
+        match btn {
+            Btn::WinMini(k) => self.miniaturize(k),
+            Btn::WinClose(k) => self.close_win(k),
+            Btn::MenuClose(m) => self.close_torn(m),
+            Btn::MenuItem(m, i) => {
+                let act = self.menus[m].items[i].act;
+                let popup = self.menus[m].kind == MenuKind::Popup || matches!(self.menus[m].kind, MenuKind::Sub { .. }) && self.root_of(m) == Some(MenuKind::Popup);
+                self.close_submenus();
+                if popup { self.menus.retain(|x| x.kind != MenuKind::Popup); }
+                self.act(act);
+            }
+            Btn::AlertBtn(i) => self.alert_button(i),
+            Btn::Tile(t) => self.dock_tile_click(t),
+            Btn::Miniwin(_) => {}
+            Btn::ScrollArrow(id, d) => self.scroll_by(id, d as i32 * 18),
+            Btn::Shelf(i) => { if let Some(p) = self.state.shelf.get(i).cloned() { self.fv_navigate(&p); } }
+            Btn::PathItem(i) => { if let Some(p) = self.fv_path_components().get(i).cloned() { self.fv_navigate(&p); } }
+            Btn::InspPopup => self.insp.popup_open = !self.insp.popup_open,
+            Btn::InspRow(i) => self.insp_set_mode(i),
+            Btn::InspCompute => self.insp_compute(),
+            Btn::RecBtn => self.rec_button(),
+            Btn::Cell(..) => {}
+        }
+    }
+    fn root_of(&self, mut m: usize) -> Option<MenuKind> {
+        loop { match self.menus.get(m)?.kind { MenuKind::Sub { parent, .. } => m = parent, k => return Some(k) } }
+    }
+
+    fn wheel(&mut self, p: Pt, dx: f32, dy: f32) {
+        if self.alert.is_some() { return; }
+        let Some((k, WinPart::Content)) = self.win_hit(p) else { return };
+        let (dx, dy) = (dx.round() as i32, dy.round() as i32);
+        match k {
+            WinKind::FileViewer => self.fv_wheel(p, dx, dy),
+            WinKind::Console => self.scroll_by(ScrollId::Console, dy),
+            WinKind::Inspector => self.scroll_by(ScrollId::InspText, dy),
+            WinKind::Recycler => self.scroll_by(ScrollId::Recycler, dy),
+            _ => {}
+        }
+    }
+
+    fn key_down(&mut self, k: Key, mods: Mods) {
+        if self.alert.is_some() {
+            let n = self.alert.as_ref().map_or(0, |a| a.buttons.len());
+            match k { Key::Enter => self.alert_button(n.saturating_sub(1)), Key::Escape => self.alert_button(0), _ => {} }
+            return;
+        }
+        if mods.cmd {
+            if let Key::Char(c) = k {
+                if let Some(it) = find_key(&MAIN_MENU, c) {
+                    let (disabled, _) = self.item_state(it);
+                    if !disabled { self.close_submenus(); self.act(it.act); }
+                }
+            }
+            return;
+        }
+        if self.key == Some(WinKind::FileViewer) && self.win(WinKind::FileViewer).shown() { self.fv_key(k, mods); }
+    }
+
+    // ---- drag & drop (§7.8) --------------------------------------------------------------------
+    fn drop(&mut self, p: Pt, paths: Vec<String>, from_shelf: Option<usize>, mods: Mods) {
+        if let Some(i) = from_shelf {
+            // dragging a Shelf item off the Shelf removes it (§7.8); it never drops anywhere else
+            let lay = self.fv_layout();
+            if !(self.win(WinKind::FileViewer).shown() && lay.shelf.contains(p)) && i < self.state.shelf.len() { self.state.shelf.remove(i); self.dirty(); }
+            return;
+        }
+        if let Some(t) = self.tile_hit(p) {
+            match t {
+                Btn::Tile(TileId::Recycler) => self.trash_paths(paths),
+                Btn::Tile(TileId::App(i)) => { let app = self.state.dock[i].clone(); for path in paths { match apps::open_with(&app, &path) { Ok(()) => self.log(format!("opened {} with {}", icons::basename(&path), icons::basename(&app))), Err(e) => self.error("Cannot open", e) } } }
+                _ => {}
+            }
+            return;
+        }
+        if self.dock_strip().contains(p) { for path in paths.into_iter().filter(|p| icons::is_app_path(&icons::basename(p))) { self.dock_add(path); } return; }
+        if let Some((WinKind::FileViewer, WinPart::Content)) = self.win_hit(p) { self.fv_drop(p, paths, mods.alt); }
+    }
+    pub fn dragging(&self) -> Option<(&Vec<String>, &'static str)> {
+        match &self.capture { Some(Capture::FileDrag { paths, icon, .. }) => Some((paths, icon)), _ => None }
+    }
+
+    // ---- drawing ---------------------------------------------------------------------------------
+    pub fn draw(&self, p: &mut Painter) {
+        p.fill(rect(0, 0, self.w, self.h), DARK);
+        if self.cfg.demo.as_deref() == Some("chrome") { crate::demo::draw_demo_chrome(self, p); return; }
+        let mut order: Vec<usize> = (0..self.wins.len()).filter(|&i| self.wins[i].shown() && self.wins[i].kind != WinKind::Alert).collect();
+        order.sort_by_key(|&i| self.wins[i].z);
+        for i in order { self.draw_win(p, i); }
+        if let Some(a) = &self.anim {
+            let t = (self.now.duration_since(a.start).as_millis() as f32 / 120.0).clamp(0.0, 1.0);
+            let lerp = |a: i32, b: i32| a + ((b - a) as f32 * t).round() as i32;
+            let r = rect(lerp(a.from.x, a.to.x), lerp(a.from.y, a.to.y), lerp(a.from.w, a.to.w), lerp(a.from.h, a.to.h));
+            p.fill(r, LIGHT); p.outline(r, BLACK); p.fill(rect(r.x, r.y, r.w, (TITLE_H as f32 * (r.h as f32 / a.from.h.max(1) as f32)).max(2.0) as i32), if a.restore { BLACK } else { DARK });
+        }
+        self.draw_tiles(p);
+        let pressed = self.pressed();
+        for (i, m) in self.menus.iter().enumerate() {
+            let hi = match pressed { Some(Btn::MenuItem(mm, ii)) if mm == i => Some(ii), _ => None };
+            let st = |it: &ItemDef| self.item_state(it);
+            m.draw(p, hi, pressed == Some(Btn::MenuClose(i)), &st);
+        }
+        if self.alert.is_some() { self.draw_win(p, wi(WinKind::Alert)); }
+        if let Some((paths, icon)) = self.dragging() {
+            let (x, y) = (self.mouse.x - 24, self.mouse.y - 24);
+            let img = p.icons.get(icon, p.px(48));
+            p.image(&img, x, y, Some((48, 48)), 128);
+            if paths.len() > 1 {
+                let t = format!("+{}", paths.len() - 1);
+                let w = p.text_width(FontId::Regular, 10, &t) + 6;
+                let br = rect(x + 48 - w + 6, y + 42, w, 12);
+                p.fill(br, BLACK);
+                p.text_in(FontId::Regular, 10, br, Align::Center, &t, WHITE);
+            }
+        }
+    }
+    fn draw_win(&self, p: &mut Painter, i: usize) {
+        let w = &self.wins[i];
+        let pressed = match self.pressed() { Some(Btn::WinMini(k)) if k == w.kind => Some(WinPart::MiniBtn), Some(Btn::WinClose(k)) if k == w.kind => Some(WinPart::CloseBtn), _ => None };
+        // a miniaturizing window is hidden while its animation runs
+        if self.anim.as_ref().is_some_and(|a| a.k == w.kind) && w.kind != WinKind::Alert { return; }
+        w.draw_chrome(p, self.key == Some(w.kind), pressed);
+        let c = w.content().inset(1);
+        p.push_clip(c);
+        match w.kind {
+            WinKind::FileViewer => self.fv_draw(p, c),
+            WinKind::Inspector => self.insp_draw(p, c),
+            WinKind::Console => self.console_draw(p, c),
+            WinKind::Info => self.info_draw(p, c),
+            WinKind::Recycler => self.rec_draw(p, c),
+            WinKind::Alert => self.alert_draw(p, c),
+        }
+        p.pop_clip();
+    }
+    fn alert_draw(&self, p: &mut Painter, c: Rect) {
+        let Some(a) = &self.alert else { return };
+        p.icon("alert", c.x + 16, c.y + 14, 48);
+        p.text(FontId::Bold, 12, c.x + 80, c.y + 27, &a.message, BLACK);
+        p.text(FontId::Regular, 12, c.x + 80, c.y + 41, &a.detail, BLACK);
+        let pressed = self.pressed();
+        for (i, r) in self.alert_buttons().iter().enumerate() {
+            button(p, *r, &a.buttons[i], pressed == Some(Btn::AlertBtn(i)), i == a.buttons.len() - 1);
+        }
+    }
+    fn console_scroller(&self) -> Scroller {
+        let c = self.content_rect(WinKind::Console).inset(1);
+        let total = self.console.len() as i32 * 13 + 4;
+        let visible = c.h;
+        let pos = if self.console_stick { (total - visible).max(0) } else { self.console_scroll.min((total - visible).max(0)) };
+        Scroller { r: rect(c.right() - 16, c.y, 16, c.h), vertical: true, total, visible, pos }
+    }
+    fn console_draw(&self, p: &mut Painter, c: Rect) {
+        let sc = self.console_scroller();
+        let list = rect(c.x, c.y, c.w - 16, c.h);
+        p.push_clip(list);
+        let first = (sc.pos / 13).max(0) as usize;
+        for (i, line) in self.console.iter().enumerate().skip(first).take((c.h / 13 + 2) as usize) {
+            let y = c.y + 2 + i as i32 * 13 - sc.pos;
+            p.text(FontId::Mono, 11, c.x + 4, y + 10, line, BLACK);
+        }
+        p.pop_clip();
+        sc.draw(p, self.pressed().and_then(|b| match b { Btn::ScrollArrow(ScrollId::Console, d) => Some(if d < 0 { ScrollHit::ArrowA } else { ScrollHit::ArrowB }), _ => None }));
+    }
+    fn info_draw(&self, p: &mut Painter, c: Rect) {
+        p.icon("workspace", c.x + (c.w - 96) / 2, c.y + 4, 96);
+        let line = |p: &mut Painter, y: i32, f: FontId, s: i32, t: &str| p.text_in(f, s, rect(c.x, c.y + y, c.w, 16), Align::Center, t, BLACK);
+        line(p, 102, FontId::Bold, 14, "ReWorkspace");
+        line(p, 118, FontId::Regular, 12, &format!("Version {}", env!("CARGO_PKG_VERSION")));
+        line(p, 134, FontId::Regular, 12, "A NeXTSTEP-style workspace.");
+        line(p, 148, FontId::Regular, 12, "Not affiliated with NeXT or Apple.");
+        line(p, 162, FontId::Regular, 12, &crate::backend::apps::platform());
+    }
+}
+
+pub fn ts() -> String {
+    let secs = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
+    let local = secs as i64 + local_offset();
+    let (h, m, s) = ((local / 3600).rem_euclid(24), (local / 60).rem_euclid(60), local.rem_euclid(60));
+    format!("{h:02}:{m:02}:{s:02}")
+}
+#[cfg(unix)]
+fn local_offset() -> i64 {
+    // SAFETY: localtime_r with a valid tm buffer; tm_gmtoff is the UTC offset in seconds.
+    unsafe {
+        let t = libc::time(std::ptr::null_mut());
+        let mut tm: libc::tm = std::mem::zeroed();
+        libc::localtime_r(&t, &mut tm);
+        tm.tm_gmtoff as i64
+    }
+}
+#[cfg(not(unix))]
+fn local_offset() -> i64 { 0 }

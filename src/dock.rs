@@ -26,7 +26,7 @@ impl Default for Dock {
 }
 
 #[derive(Default)]
-pub struct RecWin { pub items: Option<Result<Vec<Entry>, String>>, pub scroll: i32 }
+pub struct RecWin { pub items: Option<Result<Vec<Entry>, String>>, pub scroll: i32, pub seq: u64 }
 
 fn tile(p: &mut Painter, r: Rect, pressed: bool) { if pressed { p.sunken(r) } else { tile_bevel(p, r) } }
 fn dots(p: &mut Painter, r: Rect) { for i in 0..3 { p.fill(rect(r.x + 7 + i * 4, r.y + 55, 2, 2), BLACK); } }
@@ -130,12 +130,17 @@ impl App {
             Ok(empty) => self.dock.trash_empty = empty,
             Err(e) => { if !self.dock.warned { self.dock.warned = true; self.log(format!("trash_is_empty: {e}")); } self.dock.trash_empty = true; }
         }
-        if self.win(WinKind::Recycler).shown() && self.rec.items.is_none() { self.rec_open(); }
+        if self.win(WinKind::Recycler).shown() { self.rec_open(); }
     }
 
     // ---- Recycler window
     pub fn rec_open(&mut self) {
-        if cfg!(target_os = "macos") { self.rec.items = None; self.spawn(|| Job::TrashList(fs::trash_list())); }
+        if cfg!(target_os = "macos") {
+            self.rec.seq += 1;
+            let seq = self.rec.seq;
+            // Keep the current listing visible while refreshing; ignore older results.
+            self.spawn(move || Job::TrashList { seq, result: fs::trash_list() });
+        }
     }
     pub fn rec_scroller(&self) -> Scroller {
         let c = self.content_rect(WinKind::Recycler);
@@ -196,5 +201,39 @@ impl App {
                 sc.draw(p, pr);
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn recycler_ignores_old_results_after_refresh() {
+        let mut app = App::test_app();
+        app.win_mut(WinKind::Recycler).visible = true;
+        app.rec.seq = 2;
+        app.rec.scroll = 90;
+        app.on_job(Job::TrashList { seq: 2, result: Ok(vec![]) });
+        app.on_job(Job::TrashList { seq: 1, result: Err("obsolete".into()) });
+        assert!(matches!(&app.rec.items, Some(Ok(items)) if items.is_empty()));
+        assert_eq!(app.rec.scroll, 0);
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn open_recycler_reloads_after_each_trash_check() {
+        let mut app = App::test_app();
+        app.win_mut(WinKind::Recycler).visible = true;
+        app.rec.items = Some(Ok(vec![]));
+        app.dock_trash_state(Ok(false));
+        assert_eq!(app.rec.seq, 1);
+        app.dock_trash_state(Ok(false)); // changes need not alter the empty/nonempty state
+        assert_eq!(app.rec.seq, 2);
+        app.dock_trash_state(Ok(true));
+        assert_eq!(app.rec.seq, 3);
+        app.win_mut(WinKind::Recycler).visible = false;
+        app.dock_trash_state(Ok(false));
+        assert_eq!(app.rec.seq, 3);
     }
 }

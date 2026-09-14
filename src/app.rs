@@ -36,7 +36,7 @@ pub enum Job {
     DirSize { path: String, result: Result<u64, String> },
     AppIcon { app: String, result: Result<Vec<u8>, String> },
     TrashState(Result<bool, String>),
-    TrashList(Result<Vec<Entry>, String>),
+    TrashList { seq: u64, result: Result<Vec<Entry>, String> },
     Done { what: String, result: Result<(), String> },
     NewFolder(Result<String, String>),
     Mandel { seq: u64, iters: Vec<u16>, ms: u32 },
@@ -58,7 +58,7 @@ pub enum ScrollId { Col(u64), Browser, Console, InspText, Recycler, Shell }
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 #[allow(clippy::enum_variant_names)]
 pub enum Btn {
-    WinMini(WinKind), WinClose(WinKind), MenuClose(usize), MenuItem(usize, usize), AlertBtn(usize),
+    WinMini(WinKind), WinClose(WinKind), MenuClose(u64), MenuItem(u64, usize), AlertBtn(usize),
     Tile(TileId), Miniwin(WinKind), ScrollArrow(ScrollId, i8), Shelf(usize), PathItem(usize),
     InspPopup, InspRow(usize), InspCompute, RecBtn, Cell(usize, usize), Mandel(MBtn),
 }
@@ -67,7 +67,7 @@ pub enum Capture {
     Press(Btn),
     WinMove { k: WinKind, grab: Pt },
     WinResize { k: WinKind, start: Pt, orig: Rect, region: i8 },
-    MenuDrag { m: usize, grab: Pt, moved: bool },
+    MenuDrag { m: u64, grab: Pt, moved: bool },
     Knob { id: ScrollId, start: Pt, start_pos: i32 },
     CellPress { col: usize, idx: usize, start: Pt },
     ShelfPress { idx: usize, start: Pt },
@@ -97,6 +97,7 @@ pub struct App {
     save_at: Option<Instant>,
     pub wins: Vec<Win>,
     pub key: Option<WinKind>,
+    activations: Vec<WinKind>,
     zc: u32,
     menu_seq: u64,
     pub menus: Vec<MenuInst>,
@@ -118,10 +119,14 @@ impl App {
     pub fn new(cfg: Config, post: Arc<dyn Fn(Job) + Send + Sync>, fonts: Rc<Fonts>) -> App {
         if let Some(h) = &cfg.home_override { fs::set_home_override(h); }
         if let Some(c) = &cfg.config_override { apps::set_config_override(c); }
+        let (loaded, msg) = state::read_state(&state::state_path());
+        Self::from_state(cfg, post, fonts, loaded, msg)
+    }
+
+    fn from_state(cfg: Config, post: Arc<dyn Fn(Job) + Send + Sync>, fonts: Rc<Fonts>, loaded: Option<state::State>, msg: Option<String>) -> App {
         let home = fs::home_dir().unwrap_or_else(|_| "/".into());
         let roots = fs::root_dirs();
         let is_win = roots.first().is_some_and(|r| r != "/");
-        let (loaded, msg) = state::read_state(&state::state_path());
         let fresh = loaded.is_none();
         let mut st = loaded.unwrap_or_default();
         let mut console = vec![];
@@ -164,13 +169,19 @@ impl App {
         let zoom = cfg.scale_override.filter(|z| (0.5..=4.0).contains(z)).unwrap_or(st.scale);
         let mut app = App {
             w: st.os_window.w, h: st.os_window.h, zoom, quit: false, redraw: true, minimize: false, cfg, post, fonts,
-            home: home.clone(), roots, is_win, state: st, save_at: None, wins, key: None, zc: 0, menu_seq: 0, menus: vec![], alert: None,
+            home: home.clone(), roots, is_win, state: st, save_at: None, wins, key: None, activations: vec![], zc: 0, menu_seq: 0, menus: vec![], alert: None,
             fv: FileViewer::default(), insp: Inspector::default(), dock: Dock::default(), rec: RecWin::default(), mandel: Mandel::default(), shell: Shell::default(),
             console, console_scroll: 0, console_stick: true, capture: None, mouse: pt(0, 0), focused: true,
             refresh_at: Instant::now() + Duration::from_secs(5), clipboard: vec![], now: Instant::now(),
         };
         app.build_menus();
         app
+    }
+
+    #[cfg(test)]
+    pub(crate) fn test_app() -> App {
+        Self::from_state(Config { demo: None, home_override: None, config_override: None, scale_override: None },
+            Arc::new(|_| {}), Rc::new(Fonts::load()), Some(state::State::default()), None)
     }
 
 
@@ -183,7 +194,7 @@ impl App {
         if self.state.windows.recycler.open { self.show_win(WinKind::Recycler); }
         if self.state.windows.mandelbrot.open { self.show_win(WinKind::Mandelbrot); }
         if self.state.windows.shell.open { self.show_win(WinKind::Shell); }
-        if self.state.windows.file_viewer.open { self.make_key(WinKind::FileViewer); }
+        if self.state.windows.file_viewer.open { self.activate_win(WinKind::FileViewer); }
         self.log("ReWorkspace started".into());
         let path = self.state.windows.file_viewer.path.clone();
         self.fv_navigate(&path);
@@ -279,6 +290,14 @@ impl App {
         self.front(k);
         if self.key != Some(k) { self.key = Some(k); }
     }
+    /// Explicit user activation must also raise/focus the existing OS window.
+    /// Native focus notifications use make_key alone to avoid a feedback loop.
+    fn activate_win(&mut self, k: WinKind) {
+        self.make_key(k);
+        self.activations.retain(|w| *w != k);
+        self.activations.push(k);
+    }
+    pub fn take_activations(&mut self) -> Vec<WinKind> { std::mem::take(&mut self.activations) }
     fn state_win(&mut self, k: WinKind) -> Option<&mut state::WinState> {
         let w = &mut self.state.windows;
         match k { WinKind::FileViewer => Some(&mut w.file_viewer), WinKind::Inspector => Some(&mut w.inspector), WinKind::Console => Some(&mut w.console), WinKind::Recycler => Some(&mut w.recycler), WinKind::Mandelbrot => Some(&mut w.mandelbrot), WinKind::Shell => Some(&mut w.shell), _ => None }
@@ -294,7 +313,7 @@ impl App {
         win.visible = true;
         win.clamp(w, h);
         if k == WinKind::Info { win.r.x = (w - win.r.w) / 2; }
-        self.make_key(k);
+        self.activate_win(k);
         self.sync_win_state(k);
         if k == WinKind::Recycler { self.rec_open(); }
         if k == WinKind::Inspector { self.insp_refresh(); }
@@ -306,6 +325,7 @@ impl App {
         if k == WinKind::Alert { return; }
         if k == WinKind::Shell { self.shell_stop(); }
         self.win_mut(k).visible = false;
+        self.win_mut(k).mini = None;
         self.sync_win_state(k);
         self.drop_key(k);
         self.redraw = true;
@@ -328,7 +348,7 @@ impl App {
         // re-pack remaining miniwindows
         let mut n = 0;
         for w in &mut self.wins { if w.mini.is_some() { w.mini = Some(n); n += 1; } }
-        self.make_key(k);
+        self.activate_win(k);
         self.redraw = true;
     }
     /// The OS raised this window (clicked); keep the model's z-order in step before hit-testing.
@@ -347,6 +367,29 @@ impl App {
     }
     pub fn has_open_menus(&self) -> bool { self.menus.iter().any(|m| !matches!(m.kind, MenuKind::Main | MenuKind::Torn) || m.open_item.is_some()) }
     pub fn close_open_menus(&mut self) { self.close_submenus(); }
+    /// Route native Alt-F4/taskbar Close through the same model operations as our chrome.
+    pub fn close_surface(&mut self, id: SurfaceId) {
+        self.capture = None;
+        match id {
+            SurfaceId::Win(WinKind::Alert) => self.alert_button(0),
+            SurfaceId::Win(k) | SurfaceId::Miniwin(k) => self.close_win(k),
+            SurfaceId::Menu(id) => {
+                if let Some(i) = self.menu_index(id) {
+                    match self.menus[i].kind {
+                        MenuKind::Main => self.act(Act::Quit),
+                        MenuKind::Torn => self.close_torn(id),
+                        _ => self.close_submenus(),
+                    }
+                }
+            }
+            SurfaceId::AppTile => self.act(Act::Quit),
+            SurfaceId::Backdrop => { self.state.backdrop = false; self.dirty(); }
+            SurfaceId::Dock => { self.state.dock_visible = false; self.dirty(); }
+            SurfaceId::Recycler => { self.state.recycler_visible = false; self.dirty(); }
+            SurfaceId::Ghost => {}
+        }
+        self.redraw = true;
+    }
     /// Topmost shown window under `p` (alert excluded unless open).
     pub fn win_hit(&self, p: Pt) -> Option<(WinKind, WinPart)> {
         let mut best: Option<&Win> = None;
@@ -367,7 +410,7 @@ impl App {
         a.visible = true;
         self.alert = Some(Alert { message: message.into(), detail: detail.into(), buttons: buttons.iter().map(|s| s.to_string()).collect(), pending, prev_key });
         self.capture = None;
-        self.make_key(WinKind::Alert);
+        self.activate_win(WinKind::Alert);
         self.redraw = true;
     }
     fn alert_button(&mut self, i: usize) {
@@ -419,7 +462,7 @@ impl App {
             Job::DirSize { path, result } => self.insp_dir_size(path, result),
             Job::AppIcon { app, result } => self.dock_icon(app, result),
             Job::TrashState(r) => self.dock_trash_state(r),
-            Job::TrashList(r) => { self.rec.items = Some(r); }
+            Job::TrashList { seq, result } => { if seq == self.rec.seq { self.rec.items = Some(result); self.rec.scroll = self.rec_scroller().pos; } }
             Job::Done { what, result } => {
                 match result { Ok(()) => self.log(what), Err(e) => self.error("Operation failed", e) }
                 self.fv_refresh();
@@ -457,6 +500,7 @@ impl App {
             Act::Disabled => (true, false),
             Act::Paste => (self.clipboard.is_empty(), false),
             Act::EmptyRecycler => (!cfg!(target_os = "macos"), false),
+            Act::Hide => (!cfg!(target_os = "macos"), false),
             Act::ViewBrowser => (false, true),
             Act::Scale1 => (false, (self.zoom - 1.0).abs() < 0.01),
             Act::Scale15 => (false, (self.zoom - 1.5).abs() < 0.01),
@@ -475,18 +519,21 @@ impl App {
         for m in &mut self.menus { m.open_item = None; }
         self.redraw = true;
     }
-    fn close_children_of(&mut self, m: usize) {
-        // remove every Sub menu whose ancestry includes m
+    fn menu_index(&self, id: u64) -> Option<usize> { self.menus.iter().position(|m| m.id == id) }
+    fn close_children_of(&mut self, m: u64) {
+        // IDs survive both reordering and recursive removal of lower vector positions.
         while let Some(i) = self.menus.iter().position(|x| matches!(x.kind, MenuKind::Sub { parent, .. } if parent == m)) {
-            self.close_children_of(i);
-            self.menus.remove(i);
-            for x in &mut self.menus { if let MenuKind::Sub { parent, .. } = &mut x.kind { if *parent > i { *parent -= 1; } } }
+            let child = self.menus[i].id;
+            self.close_children_of(child);
+            self.menus.retain(|x| x.id != child);
         }
-        self.menus[m].open_item = None;
+        if let Some(i) = self.menu_index(m) { self.menus[i].open_item = None; }
     }
-    fn open_submenu(&mut self, m: usize, item: usize) {
-        if self.menus[m].open_item == Some(item) { self.close_children_of(m); return; }
-        self.close_children_of(m);
+    fn open_submenu(&mut self, parent: u64, item: usize) {
+        let Some(m) = self.menu_index(parent) else { return };
+        if self.menus[m].open_item == Some(item) { self.close_children_of(parent); return; }
+        self.close_children_of(parent);
+        let Some(m) = self.menu_index(parent) else { return };
         let it = &self.menus[m].items[item];
         let Some(items) = it.sub else { return };
         let mut path = self.menus[m].path.clone();
@@ -499,22 +546,24 @@ impl App {
         let w = MenuInst::width(&self.fonts, items, &title);
         self.menus[m].open_item = Some(item);
         let id = self.next_menu_id();
-        self.menus.push(MenuInst { id, title, items, path, pos: pt(0, 0), w, kind: MenuKind::Sub { parent: m, item }, open_item: None });
+        self.menus.push(MenuInst { id, title, items, path, pos: pt(0, 0), w, kind: MenuKind::Sub { parent, item }, open_item: None });
         let i = self.menus.len() - 1;
         self.reattach(i);
     }
     /// Attached submenus sit right of their parent (1 px shadow + 1 px gap), tops aligned, as in 1.0.
     fn reattach(&mut self, i: usize) {
         if let MenuKind::Sub { parent, .. } = self.menus[i].kind {
+            let Some(parent) = self.menu_index(parent) else { return };
             let p = &self.menus[parent];
             self.menus[i].pos = pt(p.pos.x + p.w + 2, p.pos.y);
         }
-        let children: Vec<usize> = self.menus.iter().enumerate().filter(|(_, x)| matches!(x.kind, MenuKind::Sub { parent, .. } if parent == i)).map(|(j, _)| j).collect();
+        let id = self.menus[i].id;
+        let children: Vec<usize> = self.menus.iter().enumerate().filter(|(_, x)| matches!(x.kind, MenuKind::Sub { parent, .. } if parent == id)).map(|(j, _)| j).collect();
         for c in children { self.reattach(c); }
     }
     fn tear_off(&mut self, i: usize) {
         if let MenuKind::Sub { parent, .. } = self.menus[i].kind {
-            self.menus[parent].open_item = None;
+            if let Some(parent) = self.menu_index(parent) { self.menus[parent].open_item = None; }
             self.menus[i].kind = MenuKind::Torn;
             let path = self.menus[i].path.clone();
             let pos = self.menus[i].pos;
@@ -530,11 +579,11 @@ impl App {
             _ => {}
         }
     }
-    fn close_torn(&mut self, i: usize) {
-        self.close_children_of(i);
+    fn close_torn(&mut self, id: u64) {
+        self.close_children_of(id);
+        let Some(i) = self.menu_index(id) else { return };
         let path = self.menus[i].path.clone();
         self.menus.remove(i);
-        for x in &mut self.menus { if let MenuKind::Sub { parent, .. } = &mut x.kind { if *parent > i { *parent -= 1; } } }
         self.state.torn_menus.retain(|t| t.path != path);
         self.dirty();
     }
@@ -584,11 +633,11 @@ impl App {
             Act::ArrangeFront => {
                 let mut order: Vec<WinKind> = self.wins.iter().filter(|w| w.shown() && w.kind != WinKind::Alert).map(|w| w.kind).collect();
                 order.sort_by_key(|k| self.win(*k).z);
-                for k in order { self.front(k); }
+                for k in order { self.activate_win(k); }
             }
             Act::Miniaturize => { if let Some(k) = self.key { self.miniaturize(k); } }
             Act::CloseWin => { if let Some(k) = self.key { self.close_win(k); } }
-            Act::Hide => self.minimize = true,
+            Act::Hide => { if cfg!(target_os = "macos") { self.minimize = true; } }
             Act::Quit => { self.save_now(); self.quit = true; }
         }
         self.redraw = true;
@@ -620,13 +669,13 @@ impl App {
         if let Some((m, part)) = self.menu_hit(p) {
             if b != Button::Left { return; }
             match part {
-                MenuPart::Close => self.capture = Some(Capture::Press(Btn::MenuClose(m))),
-                MenuPart::Title => { let pos = self.menus[m].pos; let t = self.menus.remove(m); self.menus.push(t); let m = self.menus.len() - 1; self.fix_parents_after_move(); self.capture = Some(Capture::MenuDrag { m, grab: pt(p.x - pos.x, p.y - pos.y), moved: false }); }
+                MenuPart::Close => self.capture = Some(Capture::Press(Btn::MenuClose(self.menus[m].id))),
+                MenuPart::Title => { let pos = self.menus[m].pos; let t = self.menus.remove(m); let m = t.id; self.menus.push(t); self.capture = Some(Capture::MenuDrag { m, grab: pt(p.x - pos.x, p.y - pos.y), moved: false }); }
                 MenuPart::Item(i) => {
                     let it = &self.menus[m].items[i];
                     let (disabled, _) = self.item_state(it);
                     if disabled { return; }
-                    if it.sub.is_some() { self.open_submenu(m, i); } else { self.capture = Some(Capture::Press(Btn::MenuItem(m, i))); }
+                    if it.sub.is_some() { self.open_submenu(self.menus[m].id, i); } else { self.capture = Some(Capture::Press(Btn::MenuItem(self.menus[m].id, i))); }
                 }
             }
             return;
@@ -660,16 +709,6 @@ impl App {
             }
         }
     }
-    fn fix_parents_after_move(&mut self) {
-        // after moving a menu to the end of the vector, Sub parents referring to indices must be recomputed by path
-        let paths: Vec<Vec<String>> = self.menus.iter().map(|m| m.path.clone()).collect();
-        for i in 0..self.menus.len() {
-            if let MenuKind::Sub { item, .. } = self.menus[i].kind {
-                let mut parent_path = self.menus[i].path.clone(); parent_path.pop();
-                if let Some(pi) = paths.iter().position(|p| *p == parent_path) { self.menus[i].kind = MenuKind::Sub { parent: pi, item }; }
-            }
-        }
-    }
     fn content_down(&mut self, k: WinKind, p: Pt, mods: Mods) {
         match k {
             WinKind::FileViewer => self.fv_mouse_down(p, mods),
@@ -699,7 +738,7 @@ impl App {
         match id {
             ScrollId::Col(cid) => self.fv_col_scroller(cid).map_or(0, |s| s.pos),
             ScrollId::Browser => self.fv_layout().hscroll.pos,
-            ScrollId::Console => self.console_scroll,
+            ScrollId::Console => self.console_scroller().pos,
             ScrollId::InspText => self.insp.scroll,
             ScrollId::Recycler => self.rec.scroll,
             ScrollId::Shell => self.shell_scroller().pos,
@@ -747,11 +786,12 @@ impl App {
                 self.capture = Some(Capture::WinResize { k, start, orig, region });
             }
             Capture::MenuDrag { m, grab, moved } => {
-                let moved_now = moved || (p.x - grab.x - self.menus[m].pos.x).abs() + (p.y - grab.y - self.menus[m].pos.y).abs() > 4;
+                let Some(i) = self.menu_index(m) else { return };
+                let moved_now = moved || (p.x - grab.x - self.menus[i].pos.x).abs() + (p.y - grab.y - self.menus[i].pos.y).abs() > 4;
                 if moved_now {
-                    if matches!(self.menus[m].kind, MenuKind::Sub { .. }) { self.tear_off(m); }
-                    self.menus[m].pos = pt(p.x - grab.x, p.y - grab.y);
-                    self.reattach(m);
+                    if matches!(self.menus[i].kind, MenuKind::Sub { .. }) { self.tear_off(i); }
+                    self.menus[i].pos = pt(p.x - grab.x, p.y - grab.y);
+                    self.reattach(i);
                 }
                 self.capture = Some(Capture::MenuDrag { m, grab, moved: moved_now });
             }
@@ -790,7 +830,7 @@ impl App {
             Capture::Press(btn) => { if self.btn_hit(p) == Some(btn) { self.activate(btn); } }
             Capture::WinMove { k, .. } => self.sync_win_state(k),
             Capture::WinResize { k, .. } => self.sync_win_state(k),
-            Capture::MenuDrag { m, moved, .. } => { if moved { self.menu_moved(m); } }
+            Capture::MenuDrag { m, moved, .. } => { if moved { if let Some(i) = self.menu_index(m) { self.menu_moved(i); } } }
             Capture::CellPress { .. } | Capture::Knob { .. } => {}
             Capture::ShelfPress { idx, .. } => { if self.btn_hit(p) == Some(Btn::Shelf(idx)) { self.activate(Btn::Shelf(idx)); } }
             Capture::FileDrag { paths, from_shelf, .. } => self.drop(p, paths, from_shelf, mods),
@@ -804,6 +844,7 @@ impl App {
     pub fn btn_hit(&self, p: Pt) -> Option<Btn> {
         if self.alert.is_some() { return self.alert_buttons().iter().position(|r| r.contains(p)).map(Btn::AlertBtn); }
         if let Some((m, part)) = self.menu_hit(p) {
+            let m = self.menus[m].id;
             return match part { MenuPart::Close => Some(Btn::MenuClose(m)), MenuPart::Item(i) => Some(Btn::MenuItem(m, i)), MenuPart::Title => None };
         }
         if let Some(t) = self.tile_hit(p) { return Some(t); }
@@ -833,8 +874,9 @@ impl App {
             Btn::WinClose(k) => self.close_win(k),
             Btn::MenuClose(m) => self.close_torn(m),
             Btn::MenuItem(m, i) => {
-                let act = self.menus[m].items[i].act;
-                let popup = self.menus[m].kind == MenuKind::Popup || matches!(self.menus[m].kind, MenuKind::Sub { .. }) && self.root_of(m) == Some(MenuKind::Popup);
+                let Some(mi) = self.menu_index(m) else { return };
+                let act = self.menus[mi].items[i].act;
+                let popup = self.root_of(m) == Some(MenuKind::Popup);
                 self.close_submenus();
                 if popup { self.menus.retain(|x| x.kind != MenuKind::Popup); }
                 self.act(act);
@@ -853,8 +895,12 @@ impl App {
             Btn::Cell(..) => {}
         }
     }
-    fn root_of(&self, mut m: usize) -> Option<MenuKind> {
-        loop { match self.menus.get(m)?.kind { MenuKind::Sub { parent, .. } => m = parent, k => return Some(k) } }
+    fn root_of(&self, mut m: u64) -> Option<MenuKind> {
+        // Bound traversal so even an invalid graph cannot hang the event loop.
+        for _ in 0..self.menus.len() {
+            match self.menus[self.menu_index(m)?].kind { MenuKind::Sub { parent, .. } => m = parent, k => return Some(k) }
+        }
+        None
     }
 
     fn wheel(&mut self, p: Pt, dx: f32, dy: f32) {
@@ -945,10 +991,10 @@ impl App {
             SurfaceId::Backdrop => p.fill(rect(0, 0, self.w, self.h), DARK),
             SurfaceId::Win(k) => self.draw_win(p, wi(k)),
             SurfaceId::Menu(mid) => {
-                if let Some((i, m)) = self.menus.iter().enumerate().find(|(_, m)| m.id == mid) {
-                    let hi = match pressed { Some(Btn::MenuItem(mm, ii)) if mm == i => Some(ii), _ => None };
+                if let Some(m) = self.menus.iter().find(|m| m.id == mid) {
+                    let hi = match pressed { Some(Btn::MenuItem(mm, ii)) if mm == mid => Some(ii), _ => None };
                     let st = |it: &ItemDef| self.item_state(it);
-                    m.draw(p, hi, pressed == Some(Btn::MenuClose(i)), &st);
+                    m.draw(p, hi, pressed == Some(Btn::MenuClose(mid)), &st);
                 }
             }
             SurfaceId::Dock => self.draw_dock(p),
@@ -1056,3 +1102,150 @@ fn local_offset() -> i64 {
 }
 #[cfg(not(unix))]
 fn local_offset() -> i64 { 0 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn click(app: &mut App, r: Rect) {
+        let p = pt(r.x + 5, r.y + 5);
+        app.handle(Ev::MouseDown(p, Button::Left, Mods::default()));
+        app.handle(Ev::MouseUp(p, Button::Left, Mods::default()));
+    }
+
+    fn submenu(app: &mut App, parent: u64, label: &str) -> u64 {
+        let i = app.menu_index(parent).unwrap();
+        let item = app.menus[i].items.iter().position(|it| it.label == label).unwrap();
+        app.open_submenu(parent, item);
+        app.menus.iter().find(|m| matches!(m.kind, MenuKind::Sub { parent: p, .. } if p == parent)).unwrap().id
+    }
+
+    #[test]
+    fn workspace_title_reorder_then_close_view_does_not_panic() {
+        let mut app = App::test_app();
+        let main = app.menus[0].id;
+        submenu(&mut app, main, "View");
+        let title = app.menus[app.menu_index(main).unwrap()].title_rect();
+        click(&mut app, title);
+        assert_eq!(app.menus.last().unwrap().id, main);
+        let i = app.menu_index(main).unwrap();
+        let view = app.menus[i].items.iter().position(|it| it.label == "View").unwrap();
+        let r = app.menus[i].item_rect(view);
+        click(&mut app, r);
+        assert_eq!(app.menus.len(), 1);
+        assert_eq!(app.menus[0].id, main);
+        assert_eq!(app.menus[0].open_item, None);
+    }
+
+    #[test]
+    fn closing_reordered_menu_removes_all_descendants() {
+        let mut app = App::test_app();
+        let main = app.menus[0].id;
+        let view = submenu(&mut app, main, "View");
+        let scale = submenu(&mut app, view, "Scale");
+        // Grandchild, child, root: every recursive removal shifts its ancestors.
+        app.menus.reverse();
+        assert_eq!(app.root_of(scale), Some(MenuKind::Main));
+        app.close_children_of(main);
+        assert_eq!(app.menus.len(), 1);
+        assert_eq!(app.menus[0].id, main);
+    }
+
+    #[test]
+    fn raising_torn_view_keeps_scale_parent_and_dispatches_scale() {
+        let mut app = App::test_app();
+        let main = app.menus[0].id;
+        let view = submenu(&mut app, main, "View");
+        app.tear_off(app.menu_index(view).unwrap());
+        let scale = submenu(&mut app, view, "Scale");
+        let m = app.menu_index(main).unwrap();
+        let item = app.menus[m].items.iter().position(|it| it.label == "View").unwrap();
+        app.open_submenu(main, item);
+        assert_eq!(app.menus.last().unwrap().id, view);
+        assert_eq!(app.root_of(scale), Some(MenuKind::Torn));
+        let m = app.menu_index(scale).unwrap();
+        let item = app.menus[m].items.iter().position(|it| it.act == Act::Scale15).unwrap();
+        app.activate(Btn::MenuItem(scale, item));
+        assert_eq!(app.zoom, 1.5);
+        assert!(app.menu_index(scale).is_none());
+        assert!(app.menu_index(view).is_some());
+    }
+
+    #[test]
+    fn popup_and_main_with_same_path_keep_distinct_ancestry() {
+        let mut app = App::test_app();
+        app.popup_menu(pt(400, 400));
+        let popup = app.menus.last().unwrap().id;
+        let view = submenu(&mut app, popup, "View");
+        app.menus.reverse();
+        assert_eq!(app.root_of(view), Some(MenuKind::Popup));
+    }
+
+    #[test]
+    fn explicit_activations_are_queued_without_focus_feedback() {
+        let mut app = App::test_app();
+        app.show_win(WinKind::FileViewer);
+        app.show_win(WinKind::Console);
+        app.take_activations();
+        app.act(Act::FileViewerWin);
+        assert_eq!(app.take_activations(), [WinKind::FileViewer]);
+        app.make_key(WinKind::Console);
+        assert!(app.take_activations().is_empty());
+        app.dock_tile_click(TileId::Workspace);
+        assert_eq!(app.take_activations(), [WinKind::FileViewer]);
+        app.act(Act::ArrangeFront);
+        assert_eq!(app.take_activations(), [WinKind::Console, WinKind::FileViewer]);
+        app.miniaturize(WinKind::FileViewer);
+        app.restore(WinKind::FileViewer);
+        assert_eq!(app.take_activations(), [WinKind::FileViewer]);
+    }
+
+    #[test]
+    fn console_wheel_and_arrow_start_at_the_displayed_bottom() {
+        let mut app = App::test_app();
+        app.console = vec!["log line".into(); 100];
+        app.show_win(WinKind::Console);
+        let bottom = app.console_scroller().pos;
+        assert!(bottom > 18);
+        assert_eq!(app.console_scroll, 0);
+        let c = app.content_rect(WinKind::Console);
+        app.handle(Ev::Wheel(pt(c.x + 20, c.y + 20), 0.0, -18.0));
+        assert_eq!(app.console_scroller().pos, bottom - 18);
+        app.console_stick = true;
+        app.activate(Btn::ScrollArrow(ScrollId::Console, -1));
+        assert_eq!(app.console_scroller().pos, bottom - 18);
+    }
+
+    #[test]
+    fn native_close_closes_windows_and_cancels_alerts_without_confirming() {
+        let mut app = App::test_app();
+        app.show_win(WinKind::FileViewer);
+        app.close_surface(SurfaceId::Win(WinKind::FileViewer));
+        assert!(!app.win(WinKind::FileViewer).visible);
+        assert!(!app.state.windows.file_viewer.open);
+        assert!(!app.quit);
+        app.show_alert("Delete?", "", &["Cancel", "Delete"], Pending::Destroy(vec!["must not run".into()]));
+        app.close_surface(SurfaceId::Win(WinKind::Alert));
+        assert!(app.alert.is_none());
+        assert!(!app.win(WinKind::Alert).visible);
+        let main = app.menus[0].id;
+        let view = submenu(&mut app, main, "View");
+        app.tear_off(app.menu_index(view).unwrap());
+        submenu(&mut app, view, "Scale");
+        app.close_surface(SurfaceId::Menu(view));
+        assert_eq!(app.menus.len(), 1);
+        assert!(app.state.torn_menus.is_empty());
+        app.cfg.demo = Some("test".into()); // Quit must not write real user state in a unit test.
+        app.close_surface(SurfaceId::Menu(main));
+        assert!(app.quit);
+    }
+
+    #[test]
+    fn hide_is_disabled_on_platforms_without_an_implementation() {
+        let mut app = App::test_app();
+        let hide = MAIN_MENU.iter().find(|it| it.act == Act::Hide).unwrap();
+        assert_eq!(app.item_state(hide).0, !cfg!(target_os = "macos"));
+        app.handle(Ev::Key(Key::Char('h'), Mods { cmd: true, ..Mods::default() }));
+        assert_eq!(app.wants_minimize(), cfg!(target_os = "macos"));
+    }
+}

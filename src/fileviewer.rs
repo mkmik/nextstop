@@ -56,7 +56,7 @@ impl App {
         let icons = rect(well.x + 2, well.y + 2, well.w - 3, WELL_ICONS_H);
         let browser = rect(c.x + 8, well.bottom() + 8, c.w - 16, c.bottom() - well.bottom() - 8); // runs to the resize bar; no bottom edge, as in 2.0
         let cols = rect(browser.x + 2, browser.y + 2, browser.w - 3, browser.h - 2);
-        let total = self.fv.cols.len() as i32 * COL_PITCH;
+        let total = self.fv.cols.len().max(self.fv_path_components().len()) as i32 * COL_PITCH;
         let pos = self.fv.hscroll.clamp(0, (total - cols.w).max(0));
         let hscroll = Scroller { r: rect(well.x + 2, icons.bottom() + 1, well.w - 3, HSCROLL_H), vertical: false, frame: false, arrows: false, total, visible: cols.w, pos };
         FvLayout { shelf, well, icons, hscroll, browser, cols }
@@ -156,10 +156,14 @@ impl App {
         self.insp_update(e);
     }
     fn fv_after_select(&mut self, ci: usize) {
+        self.fv.nav = None;
         self.fv_truncate(ci + 1);
         self.fv.focus = ci;
         let sel = self.fv_selection(ci);
-        if sel.len() == 1 && sel[0].is_dir { self.fv_add_column(Some(sel[0].path.clone())); self.fv_scroll_end(); }
+        if sel.len() == 1 {
+            if sel[0].is_dir { self.fv_add_column(Some(sel[0].path.clone())); }
+            self.fv_scroll_end();
+        }
         self.fv_changed();
     }
 
@@ -204,16 +208,23 @@ impl App {
         if self.fv.cols[ci].seq != seq { return; }
         match result {
             Ok(entries) => {
+                let previous = self.fv_sel_entry();
+                let previous_path = self.fv_sel_path();
                 let col = &mut self.fv.cols[ci];
                 let old: Vec<String> = col.entries.iter().zip(&col.sel).filter(|(_, s)| **s).map(|(e, _)| e.path.clone()).collect();
+                let anchor = col.anchor.and_then(|a| col.entries.get(a)).map(|e| e.path.clone());
                 col.sel = entries.iter().map(|e| old.contains(&e.path)).collect();
-                col.anchor = col.anchor.filter(|&a| a < entries.len());
+                col.anchor = anchor.and_then(|p| entries.iter().position(|e| e.path == p));
                 col.entries = entries;
                 col.unreadable = false;
                 if let Some(d) = self.fv.cols.get(ci + 1).and_then(|c| c.dir.clone()) {
-                    if !self.fv.cols[ci].entries.iter().any(|e| e.path == d) { self.fv_truncate(ci + 1); self.fv_changed(); }
+                    if !self.fv.cols[ci].entries.iter().any(|e| e.path == d && e.is_dir) {
+                        self.fv.nav = None;
+                        self.fv_truncate(ci + 1);
+                    }
                 }
                 if let Some(nav) = self.fv.nav.take() { if nav.step == ci { self.fv_nav_step(nav, ci); } else { self.fv.nav = Some(nav); } }
+                if previous != self.fv_sel_entry() || previous_path != self.fv_sel_path() { self.fv_changed(); }
             }
             Err(e) => {
                 let col = &mut self.fv.cols[ci];
@@ -343,6 +354,7 @@ impl App {
             Key::Right => { if ci + 1 < self.fv.cols.len() && !self.fv.cols[ci + 1].entries.is_empty() { self.fv_pick(ci + 1, 0); } }
             Key::Left => {
                 if ci > 0 {
+                    self.fv.nav = None;
                     self.fv.focus = ci - 1;
                     for c in self.fv.cols.iter_mut().skip(ci) { for s in c.sel.iter_mut() { *s = false; } }
                     self.fv_changed();
@@ -445,5 +457,101 @@ impl App {
             p.pop_clip();
         }
         p.pop_clip();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn entry(path: &str, is_dir: bool) -> Entry {
+        Entry { name: icons::basename(path), path: path.into(), is_dir, is_symlink: false, is_app: false, size: 10, modified: 100, hidden: false }
+    }
+    fn column(id: u64, path: &str, entries: Vec<Entry>, selected: Option<usize>) -> Column {
+        let sel = (0..entries.len()).map(|i| Some(i) == selected).collect();
+        Column { id, dir: Some(path.into()), entries, sel, anchor: selected, seq: 1, scroll: 0, unreadable: false }
+    }
+    fn root() -> &'static str { if cfg!(windows) { "C:\\" } else { "/" } }
+
+    #[test]
+    fn manual_selection_cancels_navigation_and_accepts_replacement_results() {
+        let mut app = App::test_app();
+        let a = icons::join(root(), "a");
+        let b = icons::join(root(), "b");
+        let deep = icons::join(&a, "deep");
+        app.fv.cols = vec![column(1, root(), vec![entry(&a, true), entry(&b, true)], Some(0)),
+            column(2, &a, vec![entry(&deep, true)], Some(0)), column(3, &deep, vec![], None)];
+        app.fv.next_id = 3;
+        app.fv.nav = Some(Nav { chain: vec![Some(root().into()), Some(a), Some(deep)], step: 2 });
+        app.fv_pick(0, 1);
+        assert!(app.fv.nav.is_none());
+        assert_eq!(app.fv.cols.len(), 2);
+        assert_eq!(app.fv.cols[1].dir.as_deref(), Some(b.as_str()));
+        app.fv_listed(3, 1, Ok(vec![]), false); // obsolete deeper column
+        let replacement = app.fv.cols[1].id;
+        app.fv_listed(replacement, 1, Ok(vec![entry(&icons::join(&b, "new.txt"), false)]), false);
+        assert_eq!(app.fv.cols[1].entries.len(), 1);
+        app.fv_refresh();
+        assert_eq!(app.fv.cols[1].seq, 2);
+    }
+
+    #[test]
+    fn refresh_updates_inspector_and_clears_deleted_selection() {
+        let mut app = App::test_app();
+        let mut selected = entry(&icons::join(root(), "selected.txt"), false);
+        app.fv.cols = vec![column(1, root(), vec![selected.clone()], Some(0))];
+        app.insp.entry = Some(selected.clone());
+        app.insp.text = Some(vec!["old contents".into()]);
+        app.fv_listed(1, 1, Ok(vec![selected.clone()]), true);
+        assert!(app.insp.text.is_some(), "unchanged entries should keep their Inspector contents");
+        selected.size += 10; // detects changes even when the timestamp rounds to the same second
+        app.fv_listed(1, 1, Ok(vec![selected.clone()]), true);
+        assert_eq!(app.insp.entry, Some(selected));
+        assert!(app.insp.text.is_none());
+        app.insp.text = Some(vec!["new contents".into()]);
+        app.fv_listed(1, 1, Ok(vec![]), true);
+        assert!(app.fv_deep_selection().is_empty());
+        assert!(app.insp.entry.is_none());
+        assert!(app.insp.text.is_none());
+    }
+
+    #[test]
+    fn selected_leaf_and_label_fit_at_maximum_horizontal_scroll() {
+        let mut app = App::test_app();
+        let mut dir = root().to_string();
+        for i in 0..5 {
+            let next = icons::join(&dir, if i == 4 { "selected-file.txt" } else { "folder" });
+            app.fv.cols.push(column(i + 1, &dir, vec![entry(&next, i < 4)], Some(0)));
+            dir = next;
+        }
+        app.fv.hscroll = i32::MAX;
+        let lay = app.fv_layout();
+        let leaf = app.fv_path_components().len() - 1;
+        let icon = App::path_item_rect(&lay, leaf);
+        assert!(icon.x >= lay.icons.x && icon.right() <= lay.icons.right());
+        // The label can occupy almost a full column pitch around the icon's centre.
+        assert!(App::col_x(&lay, leaf) + COL_PITCH <= lay.icons.right());
+    }
+
+    #[test]
+    fn input_timestamps_distinguish_slow_clicks_and_expire_typeahead() {
+        let mut app = App::test_app();
+        let path = icons::join(root(), "folder");
+        app.fv.cols = vec![column(1, root(), vec![entry(&path, true)], None)];
+        app.fv.next_id = 1;
+        let start = app.now;
+        app.fv_cell_down(0, 0, crate::geom::pt(0, 0), Mods::default());
+        app.capture = None;
+        app.tick(start + Duration::from_millis(550));
+        app.fv_cell_down(0, 0, crate::geom::pt(0, 0), Mods::default());
+        assert!(app.fv.last_click.is_some());
+        app.capture = None;
+        app.tick(start + Duration::from_millis(750));
+        app.fv_cell_down(0, 0, crate::geom::pt(0, 0), Mods::default());
+        assert!(app.fv.last_click.is_none());
+        app.fv_key(Key::Char('f'), Mods::default());
+        app.tick(start + Duration::from_millis(1500));
+        app.fv_key(Key::Char('o'), Mods::default());
+        assert_eq!(app.fv.typeahead, "o");
     }
 }

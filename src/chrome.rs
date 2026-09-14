@@ -293,7 +293,7 @@ pub fn find_key(items: &'static [ItemDef], c: char) -> Option<&'static ItemDef> 
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum MenuKind { Main, Popup, Sub { parent: usize, item: usize }, Torn }
+pub enum MenuKind { Main, Popup, Sub { parent: u64, item: usize }, Torn }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum MenuPart { Title, Close, Item(usize) }

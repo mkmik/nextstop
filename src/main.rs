@@ -119,7 +119,7 @@ impl Handler {
     }
 
     /// Make the set of OS windows match the model's surfaces (create, move/resize, destroy).
-    fn sync(&mut self, el: &ActiveEventLoop) {
+    fn sync(&mut self, el: &ActiveEventLoop, force_geometry: bool) {
         let desired = self.app.surfaces();
         let wanted: HashSet<SurfaceId> = desired.iter().map(|d| d.id).collect();
         let stale: Vec<SurfaceId> = self.by_id.keys().filter(|id| !wanted.contains(id)).copied().collect();
@@ -131,11 +131,17 @@ impl Handler {
                 Some(wid) => {
                     let (pos, size) = (self.os_pos(d.r), self.os_size(d.r));
                     let su = self.surfs.get_mut(&wid).unwrap();
-                    if (su.rect.x, su.rect.y) != (d.r.x, d.r.y) { su.window.set_outer_position(pos); }
-                    if (su.rect.w, su.rect.h) != (d.r.w, d.r.h) { let _ = su.window.request_inner_size(size); su.window.request_redraw(); }
+                    if force_geometry || (su.rect.x, su.rect.y) != (d.r.x, d.r.y) { su.window.set_outer_position(pos); }
+                    if force_geometry || (su.rect.w, su.rect.h) != (d.r.w, d.r.h) { let _ = su.window.request_inner_size(size); su.window.request_redraw(); }
                     su.rect = d.r;
                 }
                 None => self.create(el, d),
+            }
+        }
+        for k in self.app.take_activations() {
+            if let Some(su) = self.by_id.get(&SurfaceId::Win(k)).and_then(|wid| self.surfs.get(wid)) {
+                su.window.set_minimized(false);
+                su.window.focus_window();
             }
         }
     }
@@ -182,8 +188,9 @@ impl Handler {
     fn after(&mut self, el: &ActiveEventLoop) {
         if self.app.quit { el.exit(); return; }
         if self.app.wants_minimize() { hide_app(); }
-        if (self.app.zoom - self.zoom).abs() > 0.001 { self.zoom = self.app.zoom; self.screen_size(); }
-        self.sync(el);
+        let zoom_changed = (self.app.zoom - self.zoom).abs() > 0.001;
+        if zoom_changed { self.zoom = self.app.zoom; self.screen_size(); }
+        self.sync(el, zoom_changed);
         if self.app.take_redraw() { for su in self.surfs.values() { su.window.request_redraw(); } }
     }
 }
@@ -202,8 +209,11 @@ impl ApplicationHandler<Job> for Handler {
 
     fn window_event(&mut self, el: &ActiveEventLoop, wid: WindowId, event: WindowEvent) {
         let Some(sid) = self.surfs.get(&wid).map(|s| s.id) else { return };
+        if matches!(event, WindowEvent::RedrawRequested) { self.redraw(wid); return; }
+        // Input can wake WaitUntil early or arrive after other work in the same batch.
+        self.app.tick(Instant::now());
         match event {
-            WindowEvent::RedrawRequested => { self.redraw(wid); return; }
+            WindowEvent::CloseRequested => self.app.close_surface(sid),
             WindowEvent::Moved(pos) => {
                 // the OS may constrain a window (screen edges); follow it in the model
                 let z = self.zoom;
@@ -257,10 +267,11 @@ impl ApplicationHandler<Job> for Handler {
         self.after(el);
     }
 
-    fn user_event(&mut self, el: &ActiveEventLoop, job: Job) { self.app.on_job(job); self.after(el); }
+    fn user_event(&mut self, el: &ActiveEventLoop, job: Job) { self.app.tick(Instant::now()); self.app.on_job(job); self.after(el); }
 
-    fn new_events(&mut self, el: &ActiveEventLoop, cause: StartCause) {
-        if matches!(cause, StartCause::ResumeTimeReached { .. } | StartCause::Poll) { self.app.tick(Instant::now()); self.after(el); }
+    fn new_events(&mut self, el: &ActiveEventLoop, _cause: StartCause) {
+        self.app.tick(Instant::now());
+        if self.started { self.after(el); }
     }
 
     fn about_to_wait(&mut self, el: &ActiveEventLoop) {

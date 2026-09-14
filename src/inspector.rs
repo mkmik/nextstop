@@ -54,8 +54,7 @@ impl App {
     }
 
     pub fn insp_update(&mut self, e: Option<Entry>) {
-        let same = match (&e, &self.insp.entry) { (Some(a), Some(b)) => a.path == b.path && a.modified == b.modified, (None, None) => true, _ => false };
-        if same { return; }
+        if e == self.insp.entry { return; }
         self.insp.entry = e;
         self.insp_refresh();
     }

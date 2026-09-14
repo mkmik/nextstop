@@ -101,7 +101,8 @@ impl Icons {
 
 /// Decode a PNG into a premultiplied image.
 pub fn decode_png(bytes: &[u8]) -> Result<Image, String> {
-    let dec = png::Decoder::new(std::io::Cursor::new(bytes));
+    let mut dec = png::Decoder::new(std::io::Cursor::new(bytes));
+    dec.set_transformations(png::Transformations::normalize_to_color8());
     let mut reader = dec.read_info().map_err(|e| e.to_string())?;
     let mut buf = vec![0; reader.output_buffer_size().unwrap_or(0)];
     let info = reader.next_frame(&mut buf).map_err(|e| e.to_string())?;
@@ -315,4 +316,28 @@ pub fn encode_png_rgba(w: u32, h: u32, rgba: &[u8]) -> Vec<u8> {
         enc.write_header().unwrap().write_image_data(rgba).unwrap();
     }
     out
+}
+
+#[cfg(test)]
+mod png_tests {
+    use super::*;
+
+    #[test]
+    fn decodes_rgb_and_rgba_at_eight_and_sixteen_bits() {
+        for (color, depth, samples, expected) in [
+            (png::ColorType::Rgb, png::BitDepth::Sixteen, vec![255, 255, 0, 0, 0, 0], [255, 0, 0, 255]),
+            (png::ColorType::Rgba, png::BitDepth::Sixteen, vec![255, 255, 0, 0, 0, 0, 128, 128], [128, 0, 0, 128]),
+            (png::ColorType::Rgb, png::BitDepth::Eight, vec![255, 0, 0], [255, 0, 0, 255]),
+            (png::ColorType::Rgba, png::BitDepth::Eight, vec![255, 0, 0, 128], [128, 0, 0, 128]),
+        ] {
+            let mut bytes = vec![];
+            let mut encoder = png::Encoder::new(&mut bytes, 1, 1);
+            encoder.set_color(color);
+            encoder.set_depth(depth);
+            encoder.write_header().unwrap().write_image_data(&samples).unwrap();
+            let image = decode_png(&bytes).unwrap();
+            assert_eq!((image.w, image.h), (1, 1));
+            assert_eq!(image.px, vec![expected]);
+        }
+    }
 }

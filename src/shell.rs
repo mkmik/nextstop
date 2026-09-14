@@ -86,7 +86,11 @@ impl App {
         let term = Arc::new(FairMutex::new(Term::new(Config::default(), &TermSize::new(cols, rows), listener.clone())));
         let mut env = HashMap::new();
         env.insert("TERM".to_string(), "xterm-256color".to_string());
-        let opts = tty::Options { shell: None, working_directory: Some(self.home.clone().into()), drain_on_exit: false, env };
+        let opts = tty::Options {
+            shell: None, working_directory: Some(self.home.clone().into()), drain_on_exit: false, env,
+            #[cfg(windows)]
+            escape_args: true,
+        };
         let pty = match tty::new(&opts, Self::window_size(cols, rows), 0) { Ok(p) => p, Err(e) => { self.error("Cannot start a shell", e.to_string()); return; } };
         let ev = match EventLoop::new(term.clone(), listener, pty, false, false) { Ok(e) => e, Err(e) => { self.error("Cannot start a shell", e.to_string()); return; } };
         let notifier = Notifier(ev.channel());

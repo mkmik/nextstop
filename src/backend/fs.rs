@@ -4,7 +4,7 @@ use std::fs;
 use std::path::{Component, Path, PathBuf};
 use std::time::UNIX_EPOCH;
 
-#[derive(Serialize, Debug, Clone)]
+#[derive(Serialize, Debug, Clone, PartialEq, Eq)]
 pub struct Entry {
     pub name: String,
     pub path: String,
@@ -256,7 +256,7 @@ pub fn unique_name(dir: &Path, name: &str, copy: bool) -> String {
         (true, 1) => format!("{stem} copy{ext}"),
         (true, n) => format!("{stem} copy {n}{ext}"),
     };
-    (1..).map(candidate).find(|c| !dir.join(c).exists()).unwrap()
+    (1..).map(candidate).find(|c| fs::symlink_metadata(dir.join(c)).is_err()).unwrap()
 }
 fn copy_is_dir_like(dir: &Path, name: &str) -> bool {
     let p = dir.join(name);
@@ -272,24 +272,115 @@ pub fn new_folder(parent: String) -> R<String> {
 
 fn copy_recursive(src: &Path, dst: &Path) -> R<()> {
     let m = fs::symlink_metadata(src).map_err(err(src))?;
-    if m.is_dir() {
-        fs::create_dir(dst).map_err(err(dst))?;
-        for e in fs::read_dir(src).map_err(err(src))?.filter_map(|e| e.ok()) {
+    if m.file_type().is_symlink() {
+        let target = fs::read_link(src).map_err(err(src))?;
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(target, dst).map_err(err(dst))?;
+        #[cfg(windows)]
+        {
+            use std::os::windows::fs::{symlink_dir, symlink_file, FileTypeExt};
+            if m.file_type().is_symlink_dir() { symlink_dir(target, dst) } else { symlink_file(target, dst) }.map_err(err(dst))?;
+        }
+    } else if m.is_dir() {
+        #[allow(unused_mut)]
+        let mut builder = fs::DirBuilder::new();
+        // Keep the tree private while it is populated, including on failure. Apply the
+        // original mode last so read-only directories can still receive their children.
+        #[cfg(unix)]
+        { use std::os::unix::fs::DirBuilderExt; builder.mode(0o700); }
+        builder.create(dst).map_err(err(dst))?;
+        for e in fs::read_dir(src).map_err(err(src))? {
+            let e = e.map_err(err(src))?;
             copy_recursive(&e.path(), &dst.join(e.file_name()))?;
         }
+        fs::set_permissions(dst, m.permissions()).map_err(err(dst))?;
+    } else if m.is_file() {
+        copy_file(src, dst, &m)?;
     } else {
-        fs::copy(src, dst).map_err(err(src))?;
+        return Err(format!("{}: unsupported file type", src.display()));
+    }
+    Ok(())
+}
+
+#[cfg(unix)]
+fn copy_file(src: &Path, dst: &Path, meta: &fs::Metadata) -> R<()> {
+    use std::os::unix::fs::OpenOptionsExt;
+    let mut input = fs::File::open(src).map_err(err(src))?;
+    // Never follow or overwrite a destination link, including a dangling one.
+    let mut output = fs::OpenOptions::new().write(true).create_new(true).mode(0o600).open(dst).map_err(err(dst))?;
+    copy_file_data(&mut input, &mut output).map_err(err(dst))?;
+    output.set_permissions(meta.permissions()).map_err(err(dst))
+}
+
+#[cfg(target_os = "macos")]
+fn copy_file_data(input: &mut fs::File, output: &mut fs::File) -> std::io::Result<()> {
+    use std::os::fd::AsRawFd;
+    // Match fs::copy's metadata/resource-fork preservation while using the already
+    // exclusively created destination descriptor instead of reopening its path.
+    let flags = libc::COPYFILE_METADATA | libc::COPYFILE_DATA;
+    // SAFETY: both descriptors are open in the appropriate mode for the whole call.
+    if unsafe { libc::fcopyfile(input.as_raw_fd(), output.as_raw_fd(), std::ptr::null_mut(), flags) } != 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+    Ok(())
+}
+
+#[cfg(all(unix, not(target_os = "macos")))]
+fn copy_file_data(input: &mut fs::File, output: &mut fs::File) -> std::io::Result<()> {
+    std::io::copy(input, output).map(|_| ())
+}
+
+#[cfg(windows)]
+fn copy_file(src: &Path, dst: &Path, _meta: &fs::Metadata) -> R<()> {
+    use std::os::windows::ffi::OsStrExt;
+    #[link(name = "kernel32")]
+    extern "system" {
+        fn CopyFileW(existing: *const u16, new: *const u16, fail_if_exists: i32) -> i32;
+    }
+    let wide = |p: &Path| -> R<Vec<u16>> {
+        let mut v: Vec<u16> = p.as_os_str().encode_wide().collect();
+        if v.contains(&0) { return Err("path contains a NUL character".into()); }
+        v.push(0);
+        Ok(v)
+    };
+    // canonicalize supplies Win32's extended-length prefix, including for UNC paths.
+    // Only the destination's parent exists yet; preserve its new leaf name.
+    let source_path = fs::canonicalize(src).map_err(err(src))?;
+    let destination_path = fs::canonicalize(dst.parent().ok_or("no destination parent")?).map_err(err(dst))?
+        .join(dst.file_name().ok_or("no destination name")?);
+    let (source, destination) = (wide(&source_path)?, wide(&destination_path)?);
+    // SAFETY: both paths are NUL-terminated UTF-16. FailIfExists prevents replacing
+    // any destination file/link; CopyFile preserves alternate data streams as fs::copy does.
+    if unsafe { CopyFileW(source.as_ptr(), destination.as_ptr(), 1) } == 0 {
+        return Err(err(dst)(std::io::Error::last_os_error()));
     }
     Ok(())
 }
 
 fn remove_any(p: &Path) -> R<()> {
     let m = fs::symlink_metadata(p).map_err(err(p))?;
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::FileTypeExt;
+        if m.file_type().is_symlink_dir() { return fs::remove_dir(p).map_err(err(p)); }
+    }
     if m.is_dir() { fs::remove_dir_all(p) } else { fs::remove_file(p) }.map_err(err(p))
 }
 
 fn name_of(p: &Path) -> R<String> {
     p.file_name().map(|n| n.to_string_lossy().into_owned()).ok_or_else(|| format!("{}: no file name", p.display()))
+}
+
+fn check_copy_destination(src: &Path, dir: &Path) -> R<()> {
+    // A source link is copied as a link; only real directories can contain the output.
+    if fs::symlink_metadata(src).map_err(err(src))?.is_dir() {
+        let source = fs::canonicalize(src).map_err(err(src))?;
+        let destination = fs::canonicalize(dir).map_err(err(dir))?;
+        if destination.starts_with(&source) {
+            return Err(format!("cannot copy or move {} into itself", src.display()));
+        }
+    }
+    Ok(())
 }
 
 pub fn move_paths(paths: Vec<String>, dest_dir: String) -> R<()> {
@@ -300,10 +391,8 @@ pub fn move_paths(paths: Vec<String>, dest_dir: String) -> R<()> {
         if src == dst || src.parent() == Some(dir.as_path()) {
             continue;
         }
-        if dir.starts_with(&src) {
-            return Err(format!("cannot move {} into itself", src.display()));
-        }
-        if dst.exists() {
+        check_copy_destination(&src, &dir)?;
+        if fs::symlink_metadata(&dst).is_ok() {
             return Err(format!("{} already exists", dst.display()));
         }
         if fs::rename(&src, &dst).is_err() {
@@ -318,11 +407,9 @@ pub fn copy_paths(paths: Vec<String>, dest_dir: String) -> R<()> {
     let dir = check(&dest_dir)?;
     for s in paths {
         let src = check(&s)?;
-        if dir.starts_with(&src) {
-            return Err(format!("cannot copy {} into itself", src.display()));
-        }
+        check_copy_destination(&src, &dir)?;
         let name = name_of(&src)?;
-        let dst = if dir.join(&name).exists() { dir.join(unique_name(&dir, &name, true)) } else { dir.join(&name) };
+        let dst = if fs::symlink_metadata(dir.join(&name)).is_ok() { dir.join(unique_name(&dir, &name, true)) } else { dir.join(&name) };
         copy_recursive(&src, &dst)?;
     }
     Ok(())
@@ -413,7 +500,7 @@ mod tests {
     fn rejects_relative_and_dotdot() {
         assert!(check("relative/path").is_err());
         assert!(check("/tmp/../etc").is_err());
-        assert!(check("/tmp/ok").is_ok());
+        assert!(check(if cfg!(windows) { "C:\\temp\\ok" } else { "/tmp/ok" }).is_ok());
     }
 
     #[test]
@@ -450,6 +537,101 @@ mod tests {
         assert_eq!(unique_name(&d, "a.txt", true), "a copy 2.txt");
         fs::create_dir(d.join("my.dir")).unwrap();
         assert_eq!(unique_name(&d, "my.dir", true), "my.dir copy");
+        fs::remove_dir_all(d).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn recursive_copy_preserves_private_and_read_only_directory_modes() {
+        use std::os::unix::fs::PermissionsExt;
+        let d = tmp("copy-modes");
+        let src = d.join("private");
+        fs::create_dir_all(src.join("read-only")).unwrap();
+        fs::write(src.join("read-only/data"), "private contents").unwrap();
+        fs::set_permissions(&src, fs::Permissions::from_mode(0o700)).unwrap();
+        fs::set_permissions(src.join("read-only"), fs::Permissions::from_mode(0o555)).unwrap();
+        let dst = PathBuf::from(duplicate_paths(vec![src.to_string_lossy().into_owned()]).unwrap().remove(0));
+        assert_eq!(fs::metadata(&dst).unwrap().permissions().mode() & 0o777, 0o700);
+        assert_eq!(fs::metadata(dst.join("read-only")).unwrap().permissions().mode() & 0o777, 0o555);
+        assert_eq!(fs::read_to_string(dst.join("read-only/data")).unwrap(), "private contents");
+        for p in [&src, &dst] { fs::set_permissions(p.join("read-only"), fs::Permissions::from_mode(0o700)).unwrap(); }
+        fs::remove_dir_all(d).unwrap();
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn copying_files_preserves_resource_forks() {
+        let d = tmp("copy-resource-fork");
+        let src = d.join("source");
+        fs::write(&src, "file data").unwrap();
+        fs::write(src.join("..namedfork/rsrc"), "resource data").unwrap();
+        let dst = d.join("destination");
+        copy_recursive(&src, &dst).unwrap();
+        assert_eq!(fs::read_to_string(&dst).unwrap(), "file data");
+        assert_eq!(fs::read_to_string(dst.join("..namedfork/rsrc")).unwrap(), "resource data");
+        fs::remove_dir_all(d).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn recursive_copy_preserves_file_directory_broken_and_cyclic_links() {
+        use std::os::unix::fs::symlink;
+        let d = tmp("copy-links");
+        let src = d.join("bundle");
+        fs::create_dir_all(src.join("dir")).unwrap();
+        fs::write(src.join("file"), "contents").unwrap();
+        for (name, target) in [("file-link", "file"), ("dir-link", "dir"), ("broken", "missing"), ("cycle", ".")] {
+            symlink(target, src.join(name)).unwrap();
+        }
+        let dst = d.join("copy");
+        copy_recursive(&src, &dst).unwrap();
+        for name in ["file-link", "dir-link", "broken", "cycle"] {
+            assert!(fs::symlink_metadata(dst.join(name)).unwrap().file_type().is_symlink());
+            assert_eq!(fs::read_link(dst.join(name)).unwrap(), fs::read_link(src.join(name)).unwrap());
+            let duplicate = duplicate_paths(vec![src.join(name).to_string_lossy().into_owned()]).unwrap();
+            assert_eq!(fs::read_link(&duplicate[0]).unwrap(), fs::read_link(src.join(name)).unwrap());
+        }
+        fs::remove_dir_all(d).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn copy_and_move_reject_destinations_resolving_inside_source() {
+        use std::os::unix::fs::symlink;
+        let d = tmp("copy-aliases");
+        let src = d.join("source");
+        fs::create_dir_all(src.join("child")).unwrap();
+        let aliases = [d.join("same"), d.join("descendant")];
+        symlink(&src, &aliases[0]).unwrap();
+        symlink(src.join("child"), &aliases[1]).unwrap();
+        for dest in [&src, &src.join("child"), &aliases[0], &aliases[1]] {
+            let source = vec![src.to_string_lossy().into_owned()];
+            assert!(copy_paths(source.clone(), dest.to_string_lossy().into_owned()).is_err());
+            assert!(move_paths(source, dest.to_string_lossy().into_owned()).is_err());
+            assert!(!dest.join("source").exists());
+        }
+        assert!(src.is_dir());
+        assert_eq!(fs::read_dir(src.join("child")).unwrap().count(), 0);
+        fs::remove_dir_all(d).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn copy_never_follows_existing_destination_links() {
+        use std::os::unix::fs::symlink;
+        let d = tmp("copy-dest-links");
+        let src = d.join("source");
+        let dest = d.join("dest");
+        fs::create_dir(&dest).unwrap();
+        fs::write(&src, "new").unwrap();
+        let outside = d.join("outside");
+        symlink(&outside, dest.join("source")).unwrap();
+        symlink(&outside, dest.join("source copy")).unwrap();
+        copy_paths(vec![src.to_string_lossy().into_owned()], dest.to_string_lossy().into_owned()).unwrap();
+        assert_eq!(fs::read_to_string(dest.join("source copy 2")).unwrap(), "new");
+        assert!(!outside.exists());
+        assert!(copy_recursive(&src, &dest.join("source")).is_err());
+        assert!(!outside.exists());
         fs::remove_dir_all(d).unwrap();
     }
 }

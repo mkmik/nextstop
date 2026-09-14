@@ -72,6 +72,7 @@ to `state.json.bad` and defaults are used (the Console says so).
 
 ## Known limitations
 
+- **Hide** is available on macOS. On Windows, the menu item and Ctrl-H shortcut are disabled.
 - **Windows Recycle Bin** is not a plain folder, so the Recycler window offers an *Open Recycle
   Bin* button instead of a listing and `Empty Recycler` is disabled.
 - **macOS Trash listing** needs *Full Disk Access* (System Settings ▸ Privacy & Security). Without

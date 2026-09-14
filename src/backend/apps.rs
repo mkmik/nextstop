@@ -10,26 +10,18 @@ fn run(cmd: &mut Command) -> R<()> {
 }
 
 pub fn launch_app(app: &str) -> R<()> {
-    let p = crate::backend::fs::check(app)?;
-    if cfg!(target_os = "macos") {
-        run(Command::new("open").arg(&p))
-    } else if cfg!(windows) {
-        run(Command::new("cmd").args(["/C", "start", "", &p.to_string_lossy()]))
-    } else {
-        run(Command::new("xdg-open").arg(&p))
-    }
+    open_path(app)
 }
 
 pub fn open_with(app: &str, path: &str) -> R<()> {
     let a = crate::backend::fs::check(app)?;
     let p = crate::backend::fs::check(path)?;
-    if cfg!(target_os = "macos") {
-        run(Command::new("open").args(["-a".as_ref(), a.as_os_str(), p.as_os_str()]))
-    } else if cfg!(windows) {
-        run(Command::new("cmd").args(["/C", "start", "", &a.to_string_lossy(), &p.to_string_lossy()]))
-    } else {
-        Err("unsupported".into())
-    }
+    #[cfg(target_os = "macos")]
+    { run(Command::new("open").args(["-a".as_ref(), a.as_os_str(), p.as_os_str()])) }
+    #[cfg(windows)]
+    { windows_open(&a, Some(&p)) }
+    #[cfg(not(any(target_os = "macos", windows)))]
+    { let _ = (a, p); Err("unsupported".into()) }
 }
 
 /// Default Dock apps that exist on this machine (§7.5).
@@ -110,17 +102,80 @@ pub fn open_recycle_bin() -> R<()> {
 /// Open a file or folder with the host's default handler (§8 `open_path`).
 pub fn open_path(path: &str) -> R<()> {
     let p = crate::backend::fs::check(path)?;
-    if cfg!(target_os = "macos") {
-        run(Command::new("open").arg(&p))
-    } else if cfg!(windows) {
-        run(Command::new("cmd").args(["/C", "start", "", &p.to_string_lossy()]))
-    } else {
-        run(Command::new("xdg-open").arg(&p))
+    #[cfg(target_os = "macos")]
+    { run(Command::new("open").arg(&p)) }
+    #[cfg(windows)]
+    { windows_open(&p, None) }
+    #[cfg(not(any(target_os = "macos", windows)))]
+    { run(Command::new("xdg-open").arg(&p)) }
+}
+
+/// Quote one argument for the Windows executable command line, never for cmd.exe.
+#[cfg(any(windows, test))]
+fn windows_argument(arg: &[u16]) -> Vec<u16> {
+    let (quote, slash) = (b'"' as u16, b'\\' as u16);
+    let mut out = vec![quote];
+    let mut slashes = 0;
+    for &c in arg {
+        if c == slash { slashes += 1; continue; }
+        let n = if c == quote { slashes * 2 + 1 } else { slashes };
+        out.extend(std::iter::repeat_n(slash, n));
+        out.push(c);
+        slashes = 0;
     }
+    out.extend(std::iter::repeat_n(slash, slashes * 2));
+    out.push(quote);
+    out
+}
+
+#[cfg(windows)]
+fn windows_open(path: &Path, argument: Option<&Path>) -> R<()> {
+    use std::os::windows::ffi::OsStrExt;
+    use std::ptr::null;
+    #[link(name = "shell32")]
+    extern "system" {
+        fn ShellExecuteW(hwnd: *mut std::ffi::c_void, operation: *const u16, file: *const u16,
+            parameters: *const u16, directory: *const u16, show: i32) -> *mut std::ffi::c_void;
+    }
+    let wide = |p: &Path| -> R<Vec<u16>> {
+        let v: Vec<u16> = p.as_os_str().encode_wide().collect();
+        if v.contains(&0) { Err("path contains a NUL character".into()) } else { Ok(v) }
+    };
+    let mut file = wide(path)?;
+    file.push(0);
+    let parameters = argument.map(|p| wide(p).map(|v| {
+        let mut quoted = windows_argument(&v);
+        quoted.push(0);
+        quoted
+    })).transpose()?;
+    // SAFETY: all strings are NUL-terminated UTF-16 and live through the call.
+    // ShellExecute receives the file separately, so &, %, ^ etc. remain path data.
+    let result = unsafe { ShellExecuteW(std::ptr::null_mut(), null(), file.as_ptr(),
+        parameters.as_ref().map_or(null(), |v| v.as_ptr()), null(), 1) } as isize;
+    if result > 32 { Ok(()) } else { Err(format!("{}: Windows could not open it (ShellExecute error {result})", path.display())) }
 }
 
 pub fn platform() -> String {
     let os = match std::env::consts::OS { "macos" => "macOS", "windows" => "Windows", o => o };
     let arch = match std::env::consts::ARCH { "aarch64" => "arm64", "x86_64" => "x64", a => a };
     format!("{os} {arch}")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn windows_arguments_preserve_paths_and_metacharacters() {
+        for (input, expected) in [
+            (r"C:\My files\report&calc&%name%^.txt", r#""C:\My files\report&calc&%name%^.txt""#),
+            (r"C:\directory with spaces\", r#""C:\directory with spaces\\""#),
+            (r#"a\"b"#, r#""a\\\"b""#),
+            ("", "\"\""),
+            (r"C:\文書\報告.txt", r#""C:\文書\報告.txt""#),
+        ] {
+            let wide: Vec<u16> = input.encode_utf16().collect();
+            assert_eq!(String::from_utf16(&windows_argument(&wide)).unwrap(), expected);
+        }
+    }
 }

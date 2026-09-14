@@ -8,13 +8,13 @@ use crate::paint::*;
 use std::path::Path;
 use std::time::{Duration, Instant};
 
-pub const STRIP_W: i32 = 17;                            // per-column scroller strip
+pub const STRIP_W: i32 = 18;                            // per-column scroller strip: margin, 16 px slot, margin
 pub const LIST_W: i32 = 121;                            // column list width
-pub const COL_PITCH: i32 = STRIP_W + 2 + LIST_W + 1;     // strip, light + black line, list, black separator = 141
+pub const COL_PITCH: i32 = STRIP_W + 1 + LIST_W + 1;     // strip, black line, list, black separator = 141
 pub const CELL_H: i32 = 15;
 pub const SHELF_H: i32 = 88;                            // icons, 12 px labels, free-space line
-pub const WELL_ICONS_H: i32 = 79;                       // icon-path area inside the well
-pub const HSCROLL_H: i32 = 17;                          // horizontal scroller inside the well
+pub const WELL_ICONS_H: i32 = 76;                       // icon-path area inside the well
+pub const HSCROLL_H: i32 = 18;                          // horizontal scroller inside the well: margin, 16 px slot, margin
 pub const SHELF_CELL: i32 = 96;
 
 pub struct Column {
@@ -54,8 +54,8 @@ impl App {
         let shelf = rect(c.x, c.y, c.w, SHELF_H);
         let well = rect(c.x + 8, c.y + SHELF_H, c.w - 16, 2 + WELL_ICONS_H + 1 + HSCROLL_H + 1);
         let icons = rect(well.x + 2, well.y + 2, well.w - 3, WELL_ICONS_H);
-        let browser = rect(c.x + 8, well.bottom() + 5, c.w - 16, c.h - SHELF_H - well.h - 9);
-        let cols = rect(browser.x + 2, browser.y + 2, browser.w - 3, browser.h - 3);
+        let browser = rect(c.x + 8, well.bottom() + 8, c.w - 16, c.bottom() - well.bottom() - 8); // runs to the resize bar; no bottom edge, as in 2.0
+        let cols = rect(browser.x + 2, browser.y + 2, browser.w - 3, browser.h - 2);
         let total = self.fv.cols.len() as i32 * COL_PITCH;
         let pos = self.fv.hscroll.clamp(0, (total - cols.w).max(0));
         let hscroll = Scroller { r: rect(well.x + 2, icons.bottom() + 1, well.w - 3, HSCROLL_H), vertical: false, frame: false, arrows: false, total, visible: cols.w, pos };
@@ -70,7 +70,7 @@ impl App {
         let col = &self.fv.cols[i];
         let total = col.entries.len() as i32 * CELL_H;
         let strip = Scroller { r: rect(x, lay.cols.y, STRIP_W, lay.cols.h), vertical: true, frame: false, arrows: true, total, visible: lay.cols.h, pos: col.scroll.clamp(0, (total - lay.cols.h).max(0)) };
-        ColParts { strip, list: rect(x + STRIP_W + 2, lay.cols.y, LIST_W, lay.cols.h) }
+        ColParts { strip, list: rect(x + STRIP_W + 1, lay.cols.y, LIST_W, lay.cols.h) }
     }
     pub fn fv_col_scroller(&self, cid: u64) -> Option<Scroller> {
         let i = self.fv.cols.iter().position(|c| c.id == cid)?;
@@ -418,7 +418,7 @@ impl App {
         let b = lay.browser;
         p.fill(b, LIGHT);
         p.hline(b.x, b.y, b.w, DARK); p.hline(b.x + 1, b.y + 1, b.w - 1, BLACK); p.vline(b.x, b.y, b.h, DARK); p.vline(b.x + 1, b.y + 1, b.h - 1, BLACK);
-        p.hline(b.x, b.bottom() - 1, b.w, WHITE); p.vline(b.right() - 1, b.y, b.h, WHITE);
+        p.vline(b.right() - 1, b.y, b.h, WHITE);
         p.push_clip(lay.cols);
         for i in 0..self.fv.cols.len() {
             let parts = self.fv_col_parts(&lay, i);
@@ -426,8 +426,7 @@ impl App {
             let col = &self.fv.cols[i];
             let pr = match pressed { Some(Btn::ScrollArrow(ScrollId::Col(id), d)) if id == col.id => Some(if d < 0 { ScrollHit::ArrowA } else { ScrollHit::ArrowB }), _ => None };
             parts.strip.draw(p, pr);
-            let sx = parts.strip.r.right();
-            p.vline(sx, lay.cols.y, lay.cols.h, LIGHT); p.vline(sx + 1, lay.cols.y, lay.cols.h, BLACK);
+            p.vline(parts.strip.r.right(), lay.cols.y, lay.cols.h, BLACK);
             p.vline(parts.list.right(), lay.cols.y, lay.cols.h, BLACK);
             p.push_clip(parts.list);
             if col.unreadable { p.text(FontId::Regular, 12, parts.list.x + 4, parts.list.y + 13, "(unreadable)", DARK); }

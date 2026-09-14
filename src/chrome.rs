@@ -11,15 +11,7 @@ pub const BTN_H: i32 = 24;
 
 // ---- glyphs -------------------------------------------------------------------------------
 
-/// Filled right-pointing triangle, `h` px tall, left edge at (x, y).
-pub fn tri_right(p: &mut Painter, x: i32, y: i32, h: i32, color: u32) {
-    let half = h / 2;
-    for i in 0..=half { p.fill(rect(x + i, y + i, 1, h - 2 * i), color); }
-}
-pub fn tri_left(p: &mut Painter, x: i32, y: i32, h: i32, color: u32) {
-    let half = h / 2;
-    for i in 0..=half { p.fill(rect(x + half - i, y + i, 1, h - 2 * i), color); }
-}
+/// Filled 7 px triangles for the stepper buttons (Inspector pager, Mandelbrot depth).
 pub fn tri_up(p: &mut Painter, x: i32, y: i32, w: i32, color: u32) {
     let half = w / 2;
     for i in 0..=half { p.fill(rect(x + half - i, y + i, 2 * i + 1, 1), color); }
@@ -27,6 +19,19 @@ pub fn tri_up(p: &mut Painter, x: i32, y: i32, w: i32, color: u32) {
 pub fn tri_down(p: &mut Painter, x: i32, y: i32, w: i32, color: u32) {
     let half = w / 2;
     for i in 0..=half { p.fill(rect(x + i, y + i, w - 2 * i, 1), color); }
+}
+/// 2.0 scroller arrow, pixel for pixel (9×9): the triangle grows two pixels every second row and the
+/// step corners are dark gray. `fwd` = down / right.
+pub fn arrow(p: &mut Painter, x: i32, y: i32, vertical: bool, fwd: bool) {
+    const UP: [&str; 9] = ["....D....", "....K....", "...DKD...", "...KKK...", "..DKKKD..", "..KKKKK..", ".DKKKKKD.", ".KKKKKKK.", "DKKKKKKKD"];
+    for (i, row) in UP.iter().enumerate() {
+        for (j, ch) in row.chars().enumerate() {
+            let c = match ch { 'K' => BLACK, 'D' => DARK, _ => continue };
+            let (i, j) = (i as i32, j as i32);
+            let (dx, dy) = match (vertical, fwd) { (true, false) => (j, i), (true, true) => (j, 8 - i), (false, false) => (i, j), (false, true) => (8 - i, j) };
+            p.fill(rect(x + dx, y + dy, 1, 1), c);
+        }
+    }
 }
 /// The 2.0 branch / submenu marker, pixel for pixel (7×7): a black bar, a dark upper edge and a white
 /// lower edge around an open face — an engraved ▷ rather than an outline. On a white (selected) cell
@@ -180,11 +185,15 @@ impl Scroller {
     pub fn max_pos(&self) -> i32 { (self.total - self.visible).max(0) }
     pub fn fits(&self) -> bool { self.total <= self.visible }
     fn len(&self) -> i32 { if self.vertical { self.r.h } else { self.r.w } }
+    /// Faces start after the frame (dark, black) and a 1 px light margin; unframed scrollers have the margin only.
     fn inset(&self) -> i32 { if self.frame { 3 } else { 1 } }
-    fn tail(&self) -> i32 { if self.arrows { 33 } else { 1 } }
+    /// 2.0 hides knob and arrows when everything is visible; only the dithered slot remains.
+    fn show_arrows(&self) -> bool { self.arrows && !self.fits() }
+    /// After the track: margin, face, shadow, gap, face, shadow, margin (35 px) — or just the margin.
+    fn tail(&self) -> i32 { if self.show_arrows() { 35 } else { 1 } }
     fn track_len(&self) -> i32 { self.len() - self.inset() - self.tail() }
-    pub fn arrow_a(&self) -> Rect { let o = self.inset(); if self.vertical { rect(self.r.x + o, self.r.bottom() - 33, 15, 15) } else { rect(self.r.right() - 33, self.r.y + o, 15, 15) } }
-    pub fn arrow_b(&self) -> Rect { let o = self.inset(); if self.vertical { rect(self.r.x + o, self.r.bottom() - 16, 15, 15) } else { rect(self.r.right() - 16, self.r.y + o, 15, 15) } }
+    pub fn arrow_a(&self) -> Rect { let o = self.inset(); if self.vertical { rect(self.r.x + o, self.r.bottom() - 34, 15, 15) } else { rect(self.r.right() - 34, self.r.y + o, 15, 15) } }
+    pub fn arrow_b(&self) -> Rect { let o = self.inset(); if self.vertical { rect(self.r.x + o, self.r.bottom() - 17, 15, 15) } else { rect(self.r.right() - 17, self.r.y + o, 15, 15) } }
     fn knob_len(&self) -> i32 {
         let tl = self.track_len();
         ((tl as i64 * self.visible as i64) / self.total.max(1) as i64).max(16).min(tl as i64) as i32
@@ -205,7 +214,7 @@ impl Scroller {
     }
     pub fn hit(&self, p: Pt) -> Option<ScrollHit> {
         if !self.r.contains(p) { return None; }
-        if self.arrows {
+        if self.show_arrows() {
             if self.arrow_a().contains(p) { return Some(ScrollHit::ArrowA); }
             if self.arrow_b().contains(p) { return Some(ScrollHit::ArrowB); }
         }
@@ -214,34 +223,23 @@ impl Scroller {
         let before = if self.vertical { p.y < k.y } else { p.x < k.x };
         Some(if before { ScrollHit::PageBack } else { ScrollHit::PageFwd })
     }
+    /// 2.0 geometry, measured: [dark][black] frame, 1 px light margin, a 16 px dithered slot (15 px faces plus
+    /// their black shadow), 1 px margin, black separator; the slot stops before the buttons, whose gap and
+    /// margin rows stay light.
     pub fn draw(&self, p: &mut Painter, pressed: Option<ScrollHit>) {
         let r = self.r;
+        let (o, tl) = (self.inset(), self.track_len());
+        p.fill(r, LIGHT);
+        p.dither(if self.vertical { rect(r.x + o, r.y + o, 16, tl) } else { rect(r.x + o, r.y + o, tl, 16) });
         if self.frame {
-            if self.vertical {
-                p.dither(rect(r.x + 2, r.y + 2, 17, r.h - 2));
-                p.hline(r.x, r.y, r.w, DARK); p.hline(r.x + 1, r.y + 1, r.w - 1, BLACK);
-                p.vline(r.x, r.y, r.h, DARK); p.vline(r.x + 1, r.y + 1, r.h - 1, BLACK);
-                p.vline(r.x + 19, r.y + 2, r.h - 2, LIGHT); p.vline(r.x + 20, r.y, r.h, BLACK);
-            } else {
-                p.dither(rect(r.x + 2, r.y + 2, r.w - 2, 17));
-                p.vline(r.x, r.y, r.h, DARK); p.vline(r.x + 1, r.y + 1, r.h - 1, BLACK);
-                p.hline(r.x, r.y, r.w, DARK); p.hline(r.x + 1, r.y + 1, r.w - 1, BLACK);
-                p.hline(r.x + 2, r.y + 19, r.w - 2, LIGHT); p.hline(r.x, r.y + 20, r.w, BLACK);
-            }
-        } else {
-            p.dither(r);
+            p.hline(r.x, r.y, r.w, DARK); p.hline(r.x + 1, r.y + 1, r.w - 1, BLACK);
+            p.vline(r.x, r.y, r.h, DARK); p.vline(r.x + 1, r.y + 1, r.h - 1, BLACK);
+            if self.vertical { p.vline(r.x + 20, r.y, r.h, BLACK) } else { p.hline(r.x, r.y + 20, r.w, BLACK) }
         }
-        if self.arrows {
-            let disabled = self.fits();
-            let col = if disabled { DARK } else { BLACK };
-            for (b, hit, which) in [(self.arrow_a(), ScrollHit::ArrowA, 0), (self.arrow_b(), ScrollHit::ArrowB, 1)] {
-                if pressed == Some(hit) && !disabled { p.pressed(b) } else { p.raised(b) }
-                match (self.vertical, which) {
-                    (true, 0) => tri_up(p, b.x + 4, b.y + 4, 7, col),
-                    (true, _) => tri_down(p, b.x + 4, b.y + 5, 7, col),
-                    (false, 0) => tri_left(p, b.x + 4, b.y + 4, 7, col),
-                    (false, _) => tri_right(p, b.x + 5, b.y + 4, 7, col),
-                }
+        if self.show_arrows() {
+            for (b, hit, fwd) in [(self.arrow_a(), ScrollHit::ArrowA, false), (self.arrow_b(), ScrollHit::ArrowB, true)] {
+                if pressed == Some(hit) { p.pressed(b) } else { p.raised(b) }
+                arrow(p, b.x + 3, b.y + 3, self.vertical, fwd);
             }
         }
         if let Some(k) = self.knob() {

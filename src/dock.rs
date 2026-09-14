@@ -142,7 +142,7 @@ impl App {
         let n = self.rec.items.as_ref().and_then(|r| r.as_ref().ok()).map_or(0, |v| v.len()) as i32;
         let per_row = ((c.w - SCROLL_W - 8) / 80).max(1);
         let total = ((n + per_row - 1) / per_row) * 90 + 8;
-        Scroller { r: rect(c.x, c.y, SCROLL_W, c.h), vertical: true, total, visible: c.h, pos: self.rec.scroll.clamp(0, (total - c.h).max(0)) }
+        Scroller::framed(rect(c.x, c.y, SCROLL_W, c.h), true, total, c.h, self.rec.scroll.clamp(0, (total - c.h).max(0)))
     }
     fn rec_button_rect(&self) -> Rect { let c = self.content_rect(WinKind::Recycler); rect(c.x + SCROLL_W + 12, c.y + 60, 120, BTN_H - 1) }
     fn rec_has_button(&self) -> bool { !cfg!(target_os = "macos") || matches!(self.rec.items, Some(Err(_))) }

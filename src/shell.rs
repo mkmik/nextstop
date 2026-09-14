@@ -155,7 +155,7 @@ impl App {
     pub fn shell_scroller(&self) -> Scroller {
         let c = self.content_rect(WinKind::Shell);
         let (hist, off, rows) = self.shell.term.as_ref().map_or((0, 0, self.shell.rows), |t| { let t = t.lock(); (t.grid().history_size(), t.grid().display_offset(), t.grid().screen_lines()) });
-        Scroller { r: rect(c.x, c.y, SCROLL_W, c.h), vertical: true, total: (hist + rows) as i32, visible: rows as i32, pos: (hist - off) as i32 }
+        Scroller::framed(rect(c.x, c.y, SCROLL_W, c.h), true, (hist + rows) as i32, rows as i32, (hist - off) as i32)
     }
     pub fn shell_set_scroll(&mut self, v: i32) {
         let Some(t) = &self.shell.term else { return };

@@ -28,8 +28,9 @@ pub fn tri_down(p: &mut Painter, x: i32, y: i32, w: i32, color: u32) {
     let half = w / 2;
     for i in 0..=half { p.fill(rect(x + i, y + i, w - 2 * i, 1), color); }
 }
-/// Hollow right-pointing triangle (the 1.0 submenu / folder marker), 7 px tall, 4 px wide.
+/// Hollow right-pointing triangle (submenu / folder marker), 7 px tall, 4 px wide, white inside as in 2.0.
 pub fn tri_hollow_right(p: &mut Painter, x: i32, y: i32, color: u32) {
+    p.fill(rect(x + 1, y + 2, 1, 3), WHITE); p.fill(rect(x + 2, y + 3, 1, 1), WHITE);
     p.fill(rect(x, y, 1, 7), color);
     for i in 0..3 { p.fill(rect(x + 1 + i, y + 1 + i, 1, 1), color); p.fill(rect(x + 1 + i, y + 5 - i, 1, 1), color); }
     p.fill(rect(x + 3, y + 3, 1, 1), color);
@@ -66,12 +67,12 @@ pub fn button(p: &mut Painter, r: Rect, label: &str, pressed: bool, default: boo
     if default { glyph_return(p, r.right() - 18, r.y + r.h / 2 - 4); }
 }
 
-/// Thick Dock-style tile bevel (2 px white top/left, dark + 2 px black bottom/right).
+/// Dock-style tile bevel as in 2.0: 2 px white top/left, 1 px dark + 1 px black bottom/right.
 pub fn tile_bevel(p: &mut Painter, r: Rect) {
     p.fill(r, LIGHT);
     p.fill(rect(r.x, r.y, r.w, 2), WHITE); p.fill(rect(r.x, r.y, 2, r.h), WHITE);
-    p.fill(rect(r.x + 2, r.bottom() - 3, r.w - 2, 1), DARK); p.fill(rect(r.right() - 3, r.y + 2, 1, r.h - 2), DARK);
-    p.fill(rect(r.x + 2, r.bottom() - 2, r.w - 2, 2), BLACK); p.fill(rect(r.right() - 2, r.y + 2, 2, r.h - 2), BLACK);
+    p.fill(rect(r.x + 2, r.bottom() - 2, r.w - 2, 1), DARK); p.fill(rect(r.right() - 2, r.y + 2, 1, r.h - 2), DARK);
+    p.fill(rect(r.x + 1, r.bottom() - 1, r.w - 1, 1), BLACK); p.fill(rect(r.right() - 1, r.y + 1, 1, r.h - 1), BLACK);
 }
 
 // ---- windows -------------------------------------------------------------------------------
@@ -165,19 +166,22 @@ pub fn draw_miniwindow(p: &mut Painter, r: Rect, icon: &str, title: &str) {
 pub enum ScrollHit { ArrowA, ArrowB, PageBack, PageFwd, Knob }
 
 #[derive(Clone, Copy, Debug)]
-pub struct Scroller { pub r: Rect, pub vertical: bool, pub total: i32, pub visible: i32, pub pos: i32 }
+pub struct Scroller { pub r: Rect, pub vertical: bool, pub frame: bool, pub arrows: bool, pub total: i32, pub visible: i32, pub pos: i32 }
 
-/// Geometry (vertical): col 0 dark, col 1 black, col 2 one track pixel, cols 3–17 knob/button faces,
-/// col 18 their black shadow, col 19 light edge, col 20 black edge. Rows mirror this at the top; the two
-/// 15 px arrow buttons (plus shadow row) sit at the bottom. Horizontal scrollers are the transpose.
+/// Framed geometry (vertical): col 0 dark, col 1 black, col 2 one track pixel, cols 3–17 knob/button faces,
+/// col 18 their black shadow, col 19 light edge, col 20 black edge; rows mirror this at the top. Unframed strips
+/// (browser columns, the icon-path scroller) are 17 px: one track pixel, 15 px faces, one shadow pixel.
+/// The two 15 px arrow buttons sit at the end with a one-pixel gap between them, as in 2.0.
 impl Scroller {
+    pub fn framed(r: Rect, vertical: bool, total: i32, visible: i32, pos: i32) -> Scroller { Scroller { r, vertical, frame: true, arrows: true, total, visible, pos } }
     pub fn max_pos(&self) -> i32 { (self.total - self.visible).max(0) }
     pub fn fits(&self) -> bool { self.total <= self.visible }
     fn len(&self) -> i32 { if self.vertical { self.r.h } else { self.r.w } }
-    /// Room for the knob (face + shadow) between the top track pixel and the buttons.
-    fn track_len(&self) -> i32 { self.len() - 3 - 32 }
-    pub fn arrow_a(&self) -> Rect { if self.vertical { rect(self.r.x + 3, self.r.bottom() - 32, 15, 15) } else { rect(self.r.right() - 32, self.r.y + 3, 15, 15) } }
-    pub fn arrow_b(&self) -> Rect { if self.vertical { rect(self.r.x + 3, self.r.bottom() - 16, 15, 15) } else { rect(self.r.right() - 16, self.r.y + 3, 15, 15) } }
+    fn inset(&self) -> i32 { if self.frame { 3 } else { 1 } }
+    fn tail(&self) -> i32 { if self.arrows { 33 } else { 1 } }
+    fn track_len(&self) -> i32 { self.len() - self.inset() - self.tail() }
+    pub fn arrow_a(&self) -> Rect { let o = self.inset(); if self.vertical { rect(self.r.x + o, self.r.bottom() - 33, 15, 15) } else { rect(self.r.right() - 33, self.r.y + o, 15, 15) } }
+    pub fn arrow_b(&self) -> Rect { let o = self.inset(); if self.vertical { rect(self.r.x + o, self.r.bottom() - 16, 15, 15) } else { rect(self.r.right() - 16, self.r.y + o, 15, 15) } }
     fn knob_len(&self) -> i32 {
         let tl = self.track_len();
         ((tl as i64 * self.visible as i64) / self.total.max(1) as i64).max(16).min(tl as i64) as i32
@@ -188,7 +192,8 @@ impl Scroller {
         let tl = self.track_len();
         let kl = self.knob_len();
         let off = if self.max_pos() == 0 { 0 } else { ((tl - kl) as i64 * self.pos.clamp(0, self.max_pos()) as i64 / self.max_pos() as i64) as i32 };
-        Some(if self.vertical { rect(self.r.x + 3, self.r.y + 3 + off, 15, kl - 1) } else { rect(self.r.x + 3 + off, self.r.y + 3, kl - 1, 15) })
+        let o = self.inset();
+        Some(if self.vertical { rect(self.r.x + o, self.r.y + o + off, 15, kl - 1) } else { rect(self.r.x + o + off, self.r.y + o, kl - 1, 15) })
     }
     pub fn drag_pos(&self, start_pos: i32, delta: i32) -> i32 {
         let free = self.track_len() - self.knob_len();
@@ -197,8 +202,10 @@ impl Scroller {
     }
     pub fn hit(&self, p: Pt) -> Option<ScrollHit> {
         if !self.r.contains(p) { return None; }
-        if self.arrow_a().contains(p) { return Some(ScrollHit::ArrowA); }
-        if self.arrow_b().contains(p) { return Some(ScrollHit::ArrowB); }
+        if self.arrows {
+            if self.arrow_a().contains(p) { return Some(ScrollHit::ArrowA); }
+            if self.arrow_b().contains(p) { return Some(ScrollHit::ArrowB); }
+        }
         let k = self.knob()?;
         if k.contains(p) { return Some(ScrollHit::Knob); }
         let before = if self.vertical { p.y < k.y } else { p.x < k.x };
@@ -206,26 +213,32 @@ impl Scroller {
     }
     pub fn draw(&self, p: &mut Painter, pressed: Option<ScrollHit>) {
         let r = self.r;
-        if self.vertical {
-            p.dither(rect(r.x + 2, r.y + 2, 17, r.h - 2));
-            p.hline(r.x, r.y, r.w, DARK); p.hline(r.x + 1, r.y + 1, r.w - 1, BLACK);
-            p.vline(r.x, r.y, r.h, DARK); p.vline(r.x + 1, r.y + 1, r.h - 1, BLACK);
-            p.vline(r.x + 19, r.y + 2, r.h - 2, LIGHT); p.vline(r.x + 20, r.y, r.h, BLACK);
+        if self.frame {
+            if self.vertical {
+                p.dither(rect(r.x + 2, r.y + 2, 17, r.h - 2));
+                p.hline(r.x, r.y, r.w, DARK); p.hline(r.x + 1, r.y + 1, r.w - 1, BLACK);
+                p.vline(r.x, r.y, r.h, DARK); p.vline(r.x + 1, r.y + 1, r.h - 1, BLACK);
+                p.vline(r.x + 19, r.y + 2, r.h - 2, LIGHT); p.vline(r.x + 20, r.y, r.h, BLACK);
+            } else {
+                p.dither(rect(r.x + 2, r.y + 2, r.w - 2, 17));
+                p.vline(r.x, r.y, r.h, DARK); p.vline(r.x + 1, r.y + 1, r.h - 1, BLACK);
+                p.hline(r.x, r.y, r.w, DARK); p.hline(r.x + 1, r.y + 1, r.w - 1, BLACK);
+                p.hline(r.x + 2, r.y + 19, r.w - 2, LIGHT); p.hline(r.x, r.y + 20, r.w, BLACK);
+            }
         } else {
-            p.dither(rect(r.x + 2, r.y + 2, r.w - 2, 17));
-            p.vline(r.x, r.y, r.h, DARK); p.vline(r.x + 1, r.y + 1, r.h - 1, BLACK);
-            p.hline(r.x, r.y, r.w, DARK); p.hline(r.x + 1, r.y + 1, r.w - 1, BLACK);
-            p.hline(r.x + 2, r.y + 19, r.w - 2, LIGHT); p.hline(r.x, r.y + 20, r.w, BLACK);
+            p.dither(r);
         }
-        let disabled = self.fits();
-        let col = if disabled { DARK } else { BLACK };
-        for (b, hit, which) in [(self.arrow_a(), ScrollHit::ArrowA, 0), (self.arrow_b(), ScrollHit::ArrowB, 1)] {
-            if pressed == Some(hit) && !disabled { p.pressed(b) } else { p.raised(b) }
-            match (self.vertical, which) {
-                (true, 0) => tri_up(p, b.x + 4, b.y + 4, 7, col),
-                (true, _) => tri_down(p, b.x + 4, b.y + 5, 7, col),
-                (false, 0) => tri_left(p, b.x + 4, b.y + 4, 7, col),
-                (false, _) => tri_right(p, b.x + 5, b.y + 4, 7, col),
+        if self.arrows {
+            let disabled = self.fits();
+            let col = if disabled { DARK } else { BLACK };
+            for (b, hit, which) in [(self.arrow_a(), ScrollHit::ArrowA, 0), (self.arrow_b(), ScrollHit::ArrowB, 1)] {
+                if pressed == Some(hit) && !disabled { p.pressed(b) } else { p.raised(b) }
+                match (self.vertical, which) {
+                    (true, 0) => tri_up(p, b.x + 4, b.y + 4, 7, col),
+                    (true, _) => tri_down(p, b.x + 4, b.y + 5, 7, col),
+                    (false, 0) => tri_left(p, b.x + 4, b.y + 4, 7, col),
+                    (false, _) => tri_right(p, b.x + 5, b.y + 4, 7, col),
+                }
             }
         }
         if let Some(k) = self.knob() {
@@ -334,11 +347,11 @@ impl MenuInst {
             let (disabled, checked) = state(it);
             let inverted = hi == Some(i) || self.open_item == Some(i);
             let face = rect(ir.x, ir.y, ir.w, 19);
-            p.fill(face, if inverted { BLACK } else { LIGHT });
+            p.fill(face, if inverted { WHITE } else { LIGHT }); // 2.0: pressed / open items turn white
             p.hline(face.x, face.y, face.w, WHITE); p.vline(face.x, face.y, 19, WHITE);
             p.hline(face.x, face.bottom() - 1, face.w, DARK); p.vline(face.right() - 1, face.y, 19, DARK);
             p.hline(ir.x, ir.bottom() - 1, ir.w, BLACK);
-            let fg = if inverted { WHITE } else if disabled { DARK } else { BLACK };
+            let fg = if disabled { DARK } else { BLACK };
             if checked { p.fill(rect(ir.x + 1, ir.y + 7, 4, 4), fg); }
             p.text_in(FontId::Regular, 12, rect(ir.x + 6, ir.y, ir.w - 34, 19), Align::Left, it.label, fg);
             if it.sub.is_some() { tri_hollow_right(p, ir.right() - 11, ir.y + 6, fg); }

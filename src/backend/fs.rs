@@ -151,6 +151,20 @@ pub fn filter_existing(paths: Vec<String>) -> Vec<String> {
     paths.into_iter().filter(|p| Path::new(p).exists()).collect()
 }
 
+/// Free space (bytes) on the volume holding `path`, for the File Viewer's status line.
+#[cfg(unix)]
+pub fn disk_free(path: &str) -> Option<u64> {
+    let c = std::ffi::CString::new(path).ok()?;
+    // SAFETY: statvfs fills the zeroed struct when it returns 0.
+    unsafe {
+        let mut st: libc::statvfs = std::mem::zeroed();
+        if libc::statvfs(c.as_ptr(), &mut st) != 0 { return None; }
+        Some(st.f_bavail as u64 * st.f_frsize as u64)
+    }
+}
+#[cfg(not(unix))]
+pub fn disk_free(_path: &str) -> Option<u64> { None }
+
 #[cfg(unix)]
 fn mode_string(m: &fs::Metadata) -> String {
     use std::os::unix::fs::PermissionsExt;

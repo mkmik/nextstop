@@ -50,7 +50,7 @@ impl App {
         let lines = self.insp.text.as_ref()?.len() as i32;
         let b = self.insp_body();
         let total = lines * 13 + 4;
-        Some(Scroller { r: rect(b.x, b.y, SCROLL_W, b.h), vertical: true, total, visible: b.h, pos: self.insp.scroll.clamp(0, (total - b.h).max(0)) })
+        Some(Scroller::framed(rect(b.x, b.y, SCROLL_W, b.h), true, total, b.h, self.insp.scroll.clamp(0, (total - b.h).max(0))))
     }
 
     pub fn insp_update(&mut self, e: Option<Entry>) {

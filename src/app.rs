@@ -256,7 +256,7 @@ impl App {
             "shelf" => self.state.shelf.join(","),
             "menus" => self.menus.iter().map(|m| format!("{}@{},{}:{:?}", m.title, m.pos.x, m.pos.y, m.kind)).collect::<Vec<_>>().join(" "),
             "key" => format!("{:?}", self.key),
-            "hscroll" => self.fv_layout().hscroll.to_string(),
+            "hscroll" => self.fv_layout().hscroll.pos.to_string(),
             "surfaces" => self.surfaces().iter().map(|s| format!("{:?}", s.id)).collect::<Vec<_>>().join(" "),
             "selection" => self.fv_deep_selection().iter().map(|e| e.path.clone()).collect::<Vec<_>>().join(","),
             "cols" => self.fv.cols.iter().map(|c| format!("{}({})", c.dir.clone().unwrap_or("Computer".into()), c.entries.len())).collect::<Vec<_>>().join(" | "),
@@ -694,8 +694,8 @@ impl App {
     /// Current (clamped) scroll position.
     pub fn scroll_pos(&self, id: ScrollId) -> i32 {
         match id {
-            ScrollId::Col(cid) => { let lay = self.fv_layout(); self.fv.cols.iter().position(|c| c.id == cid).map_or(0, |i| self.col_scroll(&lay, i)) }
-            ScrollId::Browser => self.fv_layout().hscroll,
+            ScrollId::Col(cid) => self.fv_col_scroller(cid).map_or(0, |s| s.pos),
+            ScrollId::Browser => self.fv_layout().hscroll.pos,
             ScrollId::Console => self.console_scroll,
             ScrollId::InspText => self.insp.scroll,
             ScrollId::Recycler => self.rec.scroll,
@@ -703,7 +703,7 @@ impl App {
         }
     }
     pub fn set_scroll(&mut self, id: ScrollId, v: i32) {
-        let max = match id { ScrollId::Browser | ScrollId::Col(_) => self.fv_scroll_max(id), _ => self.scroller_for(id).map_or(0, |s| s.max_pos()) };
+        let max = self.scroller_for(id).map_or(0, |s| s.max_pos());
         let v = v.clamp(0, max);
         match id {
             ScrollId::Col(cid) => { if let Some(c) = self.fv.cols.iter_mut().find(|c| c.id == cid) { c.scroll = v; } }
@@ -717,7 +717,8 @@ impl App {
     }
     fn scroller_for(&self, id: ScrollId) -> Option<Scroller> {
         match id {
-            ScrollId::Col(_) | ScrollId::Browser => None,
+            ScrollId::Col(cid) => self.fv_col_scroller(cid),
+            ScrollId::Browser => Some(self.fv_layout().hscroll),
             ScrollId::Console => Some(self.console_scroller()),
             ScrollId::InspText => self.insp_text_scroller(),
             ScrollId::Recycler => Some(self.rec_scroller()),
@@ -1009,7 +1010,7 @@ impl App {
         let total = self.console.len() as i32 * 13 + 4;
         let visible = c.h;
         let pos = if self.console_stick { (total - visible).max(0) } else { self.console_scroll.min((total - visible).max(0)) };
-        Scroller { r: rect(c.x, c.y, SCROLL_W, c.h), vertical: true, total, visible, pos }
+        Scroller::framed(rect(c.x, c.y, SCROLL_W, c.h), true, total, visible, pos)
     }
     fn console_draw(&self, p: &mut Painter, c: Rect) {
         let sc = self.console_scroller();

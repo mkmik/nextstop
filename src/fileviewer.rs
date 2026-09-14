@@ -8,11 +8,14 @@ use crate::paint::*;
 use std::path::Path;
 use std::time::{Duration, Instant};
 
-pub const COL_W: i32 = 137;           // column box width
-pub const COL_PITCH: i32 = COL_W + 4; // 4 px of window face between columns
-pub const CELL_H: i32 = 16;
-pub const HEAD_H: i32 = 20;
-pub const ARROWS_H: i32 = 18;
+pub const STRIP_W: i32 = 17;                            // per-column scroller strip
+pub const LIST_W: i32 = 121;                            // column list width
+pub const COL_PITCH: i32 = STRIP_W + 2 + LIST_W + 1;     // strip, light + black line, list, black separator = 141
+pub const CELL_H: i32 = 15;
+pub const SHELF_H: i32 = 88;                            // icons, 12 px labels, free-space line
+pub const WELL_ICONS_H: i32 = 79;                       // icon-path area inside the well
+pub const HSCROLL_H: i32 = 17;                          // horizontal scroller inside the well
+pub const SHELF_CELL: i32 = 96;
 
 pub struct Column {
     pub id: u64,
@@ -29,6 +32,7 @@ pub struct Nav { pub chain: Vec<Option<String>>, pub step: usize }
 
 #[derive(Default)]
 pub struct FileViewer {
+    pub disk_free: Option<String>,
     pub cols: Vec<Column>,
     pub focus: usize,
     pub hscroll: i32,
@@ -39,64 +43,51 @@ pub struct FileViewer {
     pub next_id: u64,
 }
 
-pub struct FvLayout { pub shelf: Rect, pub path: Rect, pub browser: Rect, pub left: Rect, pub right: Rect, pub cols: Rect, pub hscroll: i32 }
-/// Parts of one column: title cell, list box, its interior, and the ▼ / ▲ buttons.
-pub struct ColParts { pub head: Rect, pub list: Rect, pub inner: Rect, pub down: Rect, pub up: Rect }
+pub struct FvLayout { pub shelf: Rect, pub well: Rect, pub icons: Rect, pub hscroll: Scroller, pub browser: Rect, pub cols: Rect }
+/// One column: its scroller strip and the list area.
+pub struct ColParts { pub strip: Scroller, pub list: Rect }
 
 impl App {
-    // ---- layout
+    // ---- layout (NeXTSTEP 2.0 File Viewer: shelf, icon-path well with the column scroller, browser)
     pub fn fv_layout(&self) -> FvLayout {
         let c = self.content_rect(WinKind::FileViewer);
-        let shelf = rect(c.x, c.y, c.w, 72);
-        let path = rect(c.x, c.y + 72, c.w, 72);
-        let browser = rect(c.x, c.y + 144, c.w, c.h - 144);
-        let strip = rect(browser.x + 4, browser.y + 4, 17, browser.h - 9);
-        let half = strip.h / 2;
-        let left = rect(strip.x, strip.y, strip.w, half - 1);
-        let right = rect(strip.x, strip.y + half + 1, strip.w, strip.h - half - 1);
-        let cx = strip.right() + 5;
-        let cols = rect(cx, browser.y + 4, browser.right() - 4 - cx, browser.h - 9);
-        let total = self.fv.cols.len() as i32 * COL_PITCH - 4;
-        FvLayout { shelf, path, browser, left, right, cols, hscroll: self.fv.hscroll.clamp(0, (total - cols.w).max(0)) }
+        let shelf = rect(c.x, c.y, c.w, SHELF_H);
+        let well = rect(c.x + 8, c.y + SHELF_H, c.w - 16, 2 + WELL_ICONS_H + 1 + HSCROLL_H + 1);
+        let icons = rect(well.x + 2, well.y + 2, well.w - 3, WELL_ICONS_H);
+        let browser = rect(c.x + 8, well.bottom() + 5, c.w - 16, c.h - SHELF_H - well.h - 9);
+        let cols = rect(browser.x + 2, browser.y + 2, browser.w - 3, browser.h - 3);
+        let total = self.fv.cols.len() as i32 * COL_PITCH;
+        let pos = self.fv.hscroll.clamp(0, (total - cols.w).max(0));
+        let hscroll = Scroller { r: rect(well.x + 2, icons.bottom() + 1, well.w - 3, HSCROLL_H), vertical: false, frame: false, arrows: false, total, visible: cols.w, pos };
+        FvLayout { shelf, well, icons, hscroll, browser, cols }
     }
-    fn shelf_item_rect(lay: &FvLayout, i: usize) -> Rect { rect(lay.shelf.x + 2 + i as i32 * 64, lay.shelf.y, 64, 72) }
-    fn path_item_rect(lay: &FvLayout, i: usize) -> Rect { rect(lay.path.x + 4 + i as i32 * 72, lay.path.y + 4, 64, 64) }
+    fn shelf_item_rect(lay: &FvLayout, i: usize) -> Rect { rect(lay.shelf.x + 8 + i as i32 * SHELF_CELL, lay.shelf.y + 4, SHELF_CELL, 72) }
+    fn col_x(lay: &FvLayout, i: usize) -> i32 { lay.cols.x - lay.hscroll.pos + i as i32 * COL_PITCH }
+    /// Icon of path component `i` sits centred above column `i` (the leaf file above the column that would follow).
+    fn path_item_rect(lay: &FvLayout, i: usize) -> Rect { rect(Self::col_x(lay, i) + (COL_PITCH - 48) / 2, lay.icons.y + 4, 48, 48) }
     pub fn fv_col_parts(&self, lay: &FvLayout, i: usize) -> ColParts {
-        let b = rect(lay.cols.x - lay.hscroll + i as i32 * COL_PITCH, lay.cols.y, COL_W, lay.cols.h);
-        let head = rect(b.x, b.y, b.w, HEAD_H);
-        let list = rect(b.x, b.y + HEAD_H + 2, b.w, b.h - HEAD_H - 2 - 2 - ARROWS_H);
-        let inner = rect(list.x + 2, list.y + 2, list.w - 3, list.h - 3);
-        let by = list.bottom() + 2;
-        ColParts { head, list, inner, down: rect(b.x, by, b.w / 2 - 1, ARROWS_H - 1), up: rect(b.x + b.w / 2 + 1, by, b.w - b.w / 2 - 1, ARROWS_H - 1) }
-    }
-    pub fn col_scroll(&self, lay: &FvLayout, i: usize) -> i32 {
-        let inner = self.fv_col_parts(lay, i).inner;
+        let x = Self::col_x(lay, i);
         let col = &self.fv.cols[i];
-        col.scroll.clamp(0, (col.entries.len() as i32 * CELL_H - inner.h).max(0))
+        let total = col.entries.len() as i32 * CELL_H;
+        let strip = Scroller { r: rect(x, lay.cols.y, STRIP_W, lay.cols.h), vertical: true, frame: false, arrows: true, total, visible: lay.cols.h, pos: col.scroll.clamp(0, (total - lay.cols.h).max(0)) };
+        ColParts { strip, list: rect(x + STRIP_W + 2, lay.cols.y, LIST_W, lay.cols.h) }
     }
-    pub fn fv_scroll_max(&self, id: ScrollId) -> i32 {
+    pub fn fv_col_scroller(&self, cid: u64) -> Option<Scroller> {
+        let i = self.fv.cols.iter().position(|c| c.id == cid)?;
         let lay = self.fv_layout();
-        match id {
-            ScrollId::Browser => (self.fv.cols.len() as i32 * COL_PITCH - 4 - lay.cols.w).max(0),
-            ScrollId::Col(cid) => match self.fv.cols.iter().position(|c| c.id == cid) {
-                Some(i) => (self.fv.cols[i].entries.len() as i32 * CELL_H - self.fv_col_parts(&lay, i).inner.h).max(0),
-                None => 0,
-            },
-            _ => 0,
-        }
+        Some(self.fv_col_parts(&lay, i).strip)
     }
-    fn cell_rect(inner: Rect, scroll: i32, idx: usize) -> Rect { rect(inner.x, inner.y + idx as i32 * CELL_H - scroll, inner.w, CELL_H) }
+    pub fn col_scroll(&self, lay: &FvLayout, i: usize) -> i32 { self.fv_col_parts(lay, i).strip.pos }
+    fn cell_rect(list: Rect, scroll: i32, idx: usize) -> Rect { rect(list.x, list.y + idx as i32 * CELL_H - scroll, list.w, CELL_H) }
     pub fn fv_cell_rect_of(&self, ci: usize, idx: usize) -> Option<Rect> {
         let lay = self.fv_layout();
         if idx >= self.fv.cols.get(ci)?.entries.len() { return None; }
-        Some(Self::cell_rect(self.fv_col_parts(&lay, ci).inner, self.col_scroll(&lay, ci), idx))
+        Some(Self::cell_rect(self.fv_col_parts(&lay, ci).list, self.col_scroll(&lay, ci), idx))
     }
     pub fn fv_sel_cell_rect(&self) -> Option<Rect> {
-        let lay = self.fv_layout();
         let ci = self.fv.focus;
         let idx = self.fv.cols.get(ci)?.sel.iter().position(|s| *s)?;
-        let parts = self.fv_col_parts(&lay, ci);
-        Some(Self::cell_rect(parts.inner, self.col_scroll(&lay, ci), idx))
+        self.fv_cell_rect_of(ci, idx)
     }
 
     // ---- selection queries
@@ -150,12 +141,13 @@ impl App {
     fn fv_scroll_end(&mut self) { self.fv.hscroll = i32::MAX / 2; } // clamped by the layout
     fn fv_ensure_visible(&mut self, ci: usize, idx: usize) {
         let lay = self.fv_layout();
-        let inner = self.fv_col_parts(&lay, ci).inner;
+        let h = self.fv_col_parts(&lay, ci).list.h;
         let col = &mut self.fv.cols[ci];
         let top = idx as i32 * CELL_H;
-        if top < col.scroll { col.scroll = top; } else if top + CELL_H > col.scroll + inner.h { col.scroll = top + CELL_H - inner.h; }
+        if top < col.scroll { col.scroll = top; } else if top + CELL_H > col.scroll + h { col.scroll = top + CELL_H - h; }
     }
     fn fv_changed(&mut self) {
+        self.fv_update_disk_free();
         let dir = self.fv_current_dir();
         self.win_mut(WinKind::FileViewer).title = format!("File Viewer — {dir}");
         self.state.windows.file_viewer.path = self.fv_sel_path();
@@ -201,6 +193,11 @@ impl App {
     pub fn fv_refresh(&mut self) {
         if self.fv.nav.is_some() || self.cfg.demo.is_some() { return; }
         for ci in 0..self.fv.cols.len() { self.fv_load(ci, true); }
+        self.fv_update_disk_free();
+    }
+    fn fv_update_disk_free(&mut self) {
+        let dir = self.fv_current_dir();
+        self.fv.disk_free = fs::disk_free(&dir).map(|b| format!("{}MB available on hard disk", b / 1_000_000));
     }
     pub fn fv_listed(&mut self, col_id: u64, seq: u64, result: Result<Vec<Entry>, String>, quiet: bool) {
         let Some(ci) = self.fv.cols.iter().position(|c| c.id == col_id) else { return };
@@ -233,17 +230,16 @@ impl App {
     pub fn fv_btn_hit(&self, p: Pt) -> Option<Btn> {
         let lay = self.fv_layout();
         if lay.shelf.contains(p) { return (0..self.state.shelf.len().min(16)).find(|&i| Self::shelf_item_rect(&lay, i).contains(p)).map(Btn::Shelf); }
-        if lay.path.contains(p) { return (0..self.fv_path_components().len()).find(|&i| Self::path_item_rect(&lay, i).contains(p)).map(Btn::PathItem); }
-        if lay.left.contains(p) { return Some(Btn::ScrollArrow(ScrollId::Browser, -1)); }
-        if lay.right.contains(p) { return Some(Btn::ScrollArrow(ScrollId::Browser, 1)); }
+        if lay.icons.contains(p) { return (0..self.fv_path_components().len()).find(|&i| Self::path_item_rect(&lay, i).inset(-8).contains(p)).map(Btn::PathItem); }
         if !lay.cols.contains(p) { return None; }
         for i in 0..self.fv.cols.len() {
             let parts = self.fv_col_parts(&lay, i);
             let id = self.fv.cols[i].id;
-            if parts.down.contains(p) { return Some(Btn::ScrollArrow(ScrollId::Col(id), 1)); }
-            if parts.up.contains(p) { return Some(Btn::ScrollArrow(ScrollId::Col(id), -1)); }
-            if parts.inner.contains(p) {
-                let idx = (p.y - parts.inner.y + self.col_scroll(&lay, i)) / CELL_H;
+            if let Some(h) = parts.strip.hit(p) {
+                return match h { ScrollHit::ArrowA => Some(Btn::ScrollArrow(ScrollId::Col(id), -1)), ScrollHit::ArrowB => Some(Btn::ScrollArrow(ScrollId::Col(id), 1)), _ => None };
+            }
+            if parts.list.contains(p) {
+                let idx = (p.y - parts.list.y + parts.strip.pos) / CELL_H;
                 return (idx >= 0 && (idx as usize) < self.fv.cols[i].entries.len()).then_some(Btn::Cell(i, idx as usize));
             }
         }
@@ -252,6 +248,13 @@ impl App {
     pub fn fv_mouse_down(&mut self, p: Pt, mods: Mods) {
         let lay = self.fv_layout();
         if lay.shelf.contains(p) { if let Some(Btn::Shelf(i)) = self.fv_btn_hit(p) { self.capture = Some(Capture::ShelfPress { idx: i, start: p }); } return; }
+        if lay.hscroll.r.contains(p) { self.scroller_down(ScrollId::Browser, lay.hscroll, p); return; }
+        if lay.cols.contains(p) {
+            for i in 0..self.fv.cols.len() {
+                let parts = self.fv_col_parts(&lay, i);
+                if parts.strip.r.contains(p) { let id = self.fv.cols[i].id; self.scroller_down(ScrollId::Col(id), parts.strip, p); return; }
+            }
+        }
         match self.fv_btn_hit(p) {
             Some(Btn::Cell(ci, idx)) => self.fv_cell_down(ci, idx, p, mods),
             Some(b) => self.capture = Some(Capture::Press(b)),
@@ -289,10 +292,10 @@ impl App {
         if lay.cols.contains(p) {
             for i in 0..self.fv.cols.len() {
                 let parts = self.fv_col_parts(&lay, i);
-                if parts.list.contains(p) { if dx.abs() > dy.abs() { self.scroll_by(ScrollId::Browser, dx); } else { self.scroll_by(ScrollId::Col(self.fv.cols[i].id), dy); } return; }
+                if parts.list.contains(p) || parts.strip.r.contains(p) { if dx.abs() > dy.abs() { self.scroll_by(ScrollId::Browser, dx); } else { self.scroll_by(ScrollId::Col(self.fv.cols[i].id), dy); } return; }
             }
         }
-        if lay.browser.contains(p) { self.scroll_by(ScrollId::Browser, if dx != 0 { dx } else { dy }); }
+        if lay.browser.contains(p) || lay.well.contains(p) { self.scroll_by(ScrollId::Browser, if dx != 0 { dx } else { dy }); }
     }
     /// Drop into a column: onto a folder cell → that folder, else the column's directory. Alt = copy.
     pub fn fv_drop(&mut self, p: Pt, paths: Vec<String>, copy: bool) {
@@ -302,7 +305,7 @@ impl App {
         for i in 0..self.fv.cols.len() {
             let parts = self.fv_col_parts(&lay, i);
             if !parts.list.contains(p) { continue; }
-            let idx = (p.y - parts.inner.y + self.col_scroll(&lay, i)) / CELL_H;
+            let idx = (p.y - parts.list.y + parts.strip.pos) / CELL_H;
             let col = &self.fv.cols[i];
             let target = match col.entries.get(idx.max(0) as usize) { Some(e) if idx >= 0 && e.is_dir => e.path.clone(), _ => match &col.dir { Some(d) => d.clone(), None => return } };
             let sep = icons::sep(&target);
@@ -375,55 +378,63 @@ impl App {
     pub fn fv_draw(&self, p: &mut Painter, _c: Rect) {
         let lay = self.fv_layout();
         let pressed = self.pressed();
-        // Shelf: a raised strip of 64×72 cells
-        p.raised(lay.shelf);
+        // Shelf: icons with 12 px labels straight on the window face, free space below
         for (i, path) in self.state.shelf.iter().take(16).enumerate() {
             let r = Self::shelf_item_rect(&lay, i);
-            p.icon(self.fv_path_icon(path), r.x + 8, r.y + 8, 48);
-            let t = p.ellipsize_mid(FontId::Regular, 10, &icons::basename(path), 62);
-            p.text_in(FontId::Regular, 10, rect(r.x + 1, r.y + 59, 62, 12), Align::Center, &t, BLACK);
+            p.icon(self.fv_path_icon(path), r.x + 24, r.y + 4, 48);
+            let t = p.ellipsize_mid(FontId::Regular, 12, &icons::basename(path), r.w - 6);
+            p.text_in(FontId::Regular, 12, rect(r.x + 3, r.y + 54, r.w - 6, 14), Align::Center, &t, BLACK);
         }
-        // Icon Path
+        if let Some(t) = &self.fv.disk_free { p.text(FontId::Regular, 10, lay.shelf.x + 8, lay.shelf.bottom() - 5, t, BLACK); }
+        // Icon-path well: sunken frame, icons above their columns, ▷ between them, white box on the leaf
+        let w = lay.well;
+        p.fill(w, LIGHT);
+        p.hline(w.x, w.y, w.w, DARK); p.hline(w.x + 1, w.y + 1, w.w - 1, BLACK); p.vline(w.x, w.y, w.h, DARK); p.vline(w.x + 1, w.y + 1, w.h - 1, BLACK);
+        p.hline(w.x, w.bottom() - 1, w.w, WHITE); p.vline(w.right() - 1, w.y, w.h, WHITE);
+        p.hline(lay.icons.x, lay.icons.bottom(), lay.icons.w, BLACK);
         let comps = self.fv_path_components();
         let leaf = self.fv_sel_entry();
+        p.push_clip(lay.icons);
         for (i, c) in comps.iter().enumerate() {
             let r = Self::path_item_rect(&lay, i);
+            if r.right() < lay.icons.x || r.x > lay.icons.right() { continue; }
             let last = i + 1 == comps.len();
-            let icon = if *c == self.home { "home" } else if icons::is_root(c) { "drive" } else if last && leaf.as_ref().is_some_and(|e| !e.is_dir) { let e = leaf.as_ref().unwrap(); icons::icon_for(&e.name, false, e.is_app) } else { "folder" };
-            p.icon(icon, r.x + 8, r.y + 2, 48);
-            let t = p.ellipsize_mid(FontId::Regular, 10, &icons::basename(c), 62);
-            p.text_in(FontId::Regular, 10, rect(r.x + 1, r.y + 52, 62, 12), Align::Center, &t, BLACK);
+            let icon = if *c == self.home { "home" } else if icons::is_root(c) { "computer" } else if last && leaf.as_ref().is_some_and(|e| !e.is_dir) { let e = leaf.as_ref().unwrap(); icons::icon_for(&e.name, false, e.is_app) } else { "folder" };
+            let name = icons::basename(c);
+            let label = if icons::is_root(c) { String::new() } else { p.ellipsize_mid(FontId::Regular, 12, &name, COL_PITCH - 20) };
+            let lw = p.text_width(FontId::Regular, 12, &label);
+            if last {
+                p.fill(rect(r.x - 8, r.y - 4, 64, 56), WHITE);
+                if !label.is_empty() { p.fill(rect(r.x + 24 - lw / 2 - 4, r.y + 52, lw + 8, 15), WHITE); }
+            }
+            p.icon(icon, r.x, r.y, 48);
+            if !label.is_empty() { p.text_in(FontId::Regular, 12, rect(r.x + 24 - lw / 2 - 4, r.y + 52, lw + 8, 15), Align::Center, &label, BLACK); }
+            if i > 0 { tri_hollow_right(p, Self::col_x(&lay, i) - 5, r.y + 20, BLACK); }
         }
-        // Browser: ◀ ▶ strip, then columns with title cells, list boxes and ▼ ▲ buttons
-        let arrow_pressed = |id: ScrollId, d: i8| pressed == Some(Btn::ScrollArrow(id, d));
-        for (r, d) in [(lay.left, -1i8), (lay.right, 1)] {
-            if arrow_pressed(ScrollId::Browser, d) { p.pressed(r) } else { p.raised(r) }
-            let c = r.center();
-            if d < 0 { tri_left(p, c.x - 3, c.y - 5, 11, DARK) } else { tri_right(p, c.x - 3, c.y - 5, 11, DARK) }
-        }
-        p.push_clip(rect(lay.cols.x, lay.cols.y, lay.cols.w + 1, lay.cols.h + 1));
+        p.pop_clip();
+        let pr = match pressed { Some(Btn::ScrollArrow(ScrollId::Browser, d)) => Some(if d < 0 { ScrollHit::ArrowA } else { ScrollHit::ArrowB }), _ => None };
+        lay.hscroll.draw(p, pr);
+        // Browser: sunken box; each column is a scroller strip plus a list, separated by black lines
+        let b = lay.browser;
+        p.fill(b, LIGHT);
+        p.hline(b.x, b.y, b.w, DARK); p.hline(b.x + 1, b.y + 1, b.w - 1, BLACK); p.vline(b.x, b.y, b.h, DARK); p.vline(b.x + 1, b.y + 1, b.h - 1, BLACK);
+        p.hline(b.x, b.bottom() - 1, b.w, WHITE); p.vline(b.right() - 1, b.y, b.h, WHITE);
+        p.push_clip(lay.cols);
         for i in 0..self.fv.cols.len() {
             let parts = self.fv_col_parts(&lay, i);
-            if parts.head.right() < lay.cols.x || parts.head.x > lay.cols.right() { continue; }
+            if parts.list.right() < lay.cols.x || parts.strip.r.x > lay.cols.right() { continue; }
             let col = &self.fv.cols[i];
-            // title cell: dark, sunken, white bold path component
-            let h = parts.head;
-            p.fill(h, DARK);
-            p.hline(h.x, h.y, h.w, DARK); p.hline(h.x, h.y + 1, h.w, BLACK); p.vline(h.x, h.y, h.h, DARK); p.vline(h.x + 1, h.y, h.h, BLACK);
-            p.hline(h.x, h.bottom() - 2, h.w, LIGHT); p.hline(h.x, h.bottom() - 1, h.w, WHITE); p.vline(h.right() - 2, h.y, h.h, LIGHT); p.vline(h.right() - 1, h.y, h.h, WHITE);
-            let name = match &col.dir { None => "Computer".to_string(), Some(d) => icons::basename(d) };
-            p.text_in(FontId::Bold, 12, rect(h.x + 4, h.y + 1, h.w - 8, h.h - 3), Align::Center, &p.ellipsize_mid(FontId::Bold, 12, &name, h.w - 8), WHITE);
-            // list box
-            let l = parts.list;
-            p.fill(l, LIGHT);
-            p.hline(l.x, l.y, l.w, DARK); p.hline(l.x, l.y + 1, l.w, BLACK); p.vline(l.x, l.y, l.h, DARK); p.vline(l.x + 1, l.y, l.h, BLACK);
-            p.hline(l.x, l.bottom() - 1, l.w, WHITE); p.vline(l.right() - 1, l.y, l.h, WHITE);
-            p.push_clip(parts.inner);
-            if col.unreadable { p.text(FontId::Regular, 12, parts.inner.x + 4, parts.inner.y + 13, "(unreadable)", DARK); }
-            let scroll = self.col_scroll(&lay, i);
+            let pr = match pressed { Some(Btn::ScrollArrow(ScrollId::Col(id), d)) if id == col.id => Some(if d < 0 { ScrollHit::ArrowA } else { ScrollHit::ArrowB }), _ => None };
+            parts.strip.draw(p, pr);
+            let sx = parts.strip.r.right();
+            p.vline(sx, lay.cols.y, lay.cols.h, LIGHT); p.vline(sx + 1, lay.cols.y, lay.cols.h, BLACK);
+            p.vline(parts.list.right(), lay.cols.y, lay.cols.h, BLACK);
+            p.push_clip(parts.list);
+            if col.unreadable { p.text(FontId::Regular, 12, parts.list.x + 4, parts.list.y + 13, "(unreadable)", DARK); }
+            let scroll = parts.strip.pos;
             let first = (scroll / CELL_H).max(0) as usize;
-            for (idx, e) in col.entries.iter().enumerate().skip(first).take((parts.inner.h / CELL_H + 2) as usize) {
-                let r = Self::cell_rect(parts.inner, scroll, idx);
+            for (idx, e) in col.entries.iter().enumerate().skip(first).take((parts.list.h / CELL_H + 2) as usize) {
+                let r = Self::cell_rect(parts.list, scroll, idx);
                 if col.sel.get(idx).copied().unwrap_or(false) { p.fill(r, WHITE); }
                 let mut right = r.right() - 3;
                 if e.is_dir { right -= 6; tri_hollow_right(p, right + 1, r.y + 4, BLACK); right -= 3; }
@@ -432,12 +443,6 @@ impl App {
                 p.text_in(FontId::Regular, 12, rect(r.x + 3, r.y, name_w, r.h), Align::Left, &p.ellipsize_mid(FontId::Regular, 12, &e.name, name_w), BLACK);
             }
             p.pop_clip();
-            // ▼ ▲ buttons
-            for (r, d) in [(parts.down, 1i8), (parts.up, -1)] {
-                if arrow_pressed(ScrollId::Col(col.id), d) { p.pressed(r) } else { p.raised(r) }
-                let c = r.center();
-                if d > 0 { tri_down(p, c.x - 4, c.y - 4, 9, DARK) } else { tri_up(p, c.x - 4, c.y - 4, 9, DARK) }
-            }
         }
         p.pop_clip();
     }

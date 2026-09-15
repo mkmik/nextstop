@@ -39,6 +39,10 @@ impl Fonts {
         self.cache.borrow_mut().insert((id, px, ch), g.clone());
         g
     }
+    /// Whether the face can draw this character at all; the bundled Liberation faces stop well
+    /// short of Unicode (no ▸, for one), and a missing glyph is drawn as an empty box.
+    #[cfg(test)]
+    pub fn has_glyph(&self, id: FontId, ch: char) -> bool { self.face(id).lookup_glyph_index(ch) != 0 }
     /// Advance width in device pixels.
     pub fn width_px(&self, id: FontId, px: u32, text: &str) -> f32 {
         text.chars().map(|c| self.face(id).metrics(c, px as f32).advance_width).sum()

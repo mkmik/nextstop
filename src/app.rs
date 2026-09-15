@@ -108,6 +108,7 @@ pub struct App {
     pub menus: Vec<MenuInst>,
     pub alert: Option<Alert>,
     pub fv: FileViewer, pub insp: Inspector, pub dock: Dock, pub rec: RecWin, pub mandel: Mandel, pub improv: Improv, pub shell: Shell, pub concur: Concur, pub lib: Librarian,
+    pub help: WinKind, // the application whose page the Help panel shows
     pub console: Vec<String>, pub console_scroll: i32, console_stick: bool,
     pub capture: Option<Capture>,
     pub mouse: Pt,
@@ -117,7 +118,7 @@ pub struct App {
     pub now: Instant,
 }
 
-const KINDS: [WinKind; 11] = [WinKind::FileViewer, WinKind::Inspector, WinKind::Console, WinKind::Info, WinKind::Recycler, WinKind::Mandelbrot, WinKind::Improv, WinKind::Shell, WinKind::Concurrence, WinKind::Librarian, WinKind::Alert];
+const KINDS: [WinKind; 12] = [WinKind::FileViewer, WinKind::Inspector, WinKind::Console, WinKind::Info, WinKind::Help, WinKind::Recycler, WinKind::Mandelbrot, WinKind::Improv, WinKind::Shell, WinKind::Concurrence, WinKind::Librarian, WinKind::Alert];
 pub fn wi(k: WinKind) -> usize { KINDS.iter().position(|x| *x == k).unwrap() }
 
 impl App {
@@ -157,6 +158,7 @@ impl App {
             Win::new(WinKind::Inspector, rect(st.windows.inspector.x, st.windows.inspector.y, 272, 400), "Inspector", "miniwindow"),
             Win::new(WinKind::Console, wr(&st.windows.console), "Console", "miniwindow"),
             Win::new(WinKind::Info, rect(0, 120, 300, 200), "Info", "workspace"),
+            Win::new(WinKind::Help, rect(0, 140, crate::help::HELP_W, 300), "Help", "file-text"),
             Win::new(WinKind::Recycler, wr(&st.windows.recycler), "Recycler", "recycler-empty"),
             Win::new(WinKind::Mandelbrot, rect(st.windows.mandelbrot.x, st.windows.mandelbrot.y, crate::mandel::WIN_W, crate::mandel::WIN_H), "Mandelbrot", "file-image"),
             Win::new(WinKind::Improv, wr(&st.windows.improv), "Improv", "application"),
@@ -169,6 +171,7 @@ impl App {
         wins[wi(WinKind::Inspector)].resizable = false; wins[wi(WinKind::Inspector)].mini_btn = false;
         wins[wi(WinKind::Console)].min_w = 240; wins[wi(WinKind::Console)].min_h = 100;
         wins[wi(WinKind::Info)].resizable = false; wins[wi(WinKind::Info)].mini_btn = false;
+        wins[wi(WinKind::Help)].resizable = false; wins[wi(WinKind::Help)].mini_btn = false;
         wins[wi(WinKind::Recycler)].min_w = 200; wins[wi(WinKind::Recycler)].min_h = 120;
         wins[wi(WinKind::Mandelbrot)].resizable = false;
         wins[wi(WinKind::Improv)].min_w = 400; wins[wi(WinKind::Improv)].min_h = 260;
@@ -184,7 +187,7 @@ impl App {
             w: st.os_window.w, h: st.os_window.h, zoom, quit: false, redraw: true, minimize: false, cfg, post, fonts,
             home: home.clone(), roots, is_win, state: st, save_at: None, wins, key: None, activations: vec![], zc: 0, menu_seq: 0, menus: vec![], alert: None,
             fv: FileViewer::default(), insp: Inspector::default(), dock: Dock::default(), rec: RecWin::default(), mandel: Mandel::default(), improv, shell: Shell::default(), concur, lib: Librarian::default(),
-            console, console_scroll: 0, console_stick: true, capture: None, mouse: pt(0, 0), focused: true,
+            help: WinKind::FileViewer, console, console_scroll: 0, console_stick: true, capture: None, mouse: pt(0, 0), focused: true,
             refresh_at: Instant::now() + Duration::from_secs(5), clipboard: vec![], now: Instant::now(),
         };
         app.build_menus();
@@ -342,7 +345,7 @@ impl App {
         let win = self.win_mut(k);
         win.visible = true;
         win.clamp(w, h);
-        if k == WinKind::Info { win.r.x = (w - win.r.w) / 2; }
+        if matches!(k, WinKind::Info | WinKind::Help) { win.r.x = (w - win.r.w) / 2; }
         self.activate_win(k);
         self.sync_win_state(k);
         if k == WinKind::Recycler { self.rec_open(); }
@@ -533,6 +536,7 @@ impl App {
     fn main_menu(&self) -> (&'static str, &'static [ItemDef]) {
         match self.key {
             Some(WinKind::Improv) if self.win(WinKind::Improv).shown() => ("Improv", &IMPROV_MENU),
+            Some(WinKind::Concurrence) if self.win(WinKind::Concurrence).shown() => ("Concurrence", &CONCUR_MENU),
             _ => ("Workspace", &MAIN_MENU),
         }
     }
@@ -553,6 +557,10 @@ impl App {
             Act::ShowMiniwindows => (false, self.state.miniwindows_visible),
             Act::ShowRecycler => (false, self.state.recycler_visible),
             Act::IvNewRow | Act::IvDelRow | Act::IvNewCol | Act::IvDelCol => (!self.iv_can(it.act), false),
+            Act::Co(CBtn::Outline) => (false, !self.concur.slides),
+            Act::Co(CBtn::Slide) => (false, self.concur.slides),
+            Act::Co(CBtn::Present) => (self.c_slides().is_empty(), false),
+            Act::CoMove(right) => (!self.c_can_move(right), false),
             _ => (false, false),
         }
     }
@@ -645,6 +653,7 @@ impl App {
         match a {
             Act::None | Act::Disabled => {}
             Act::InfoPanel => self.show_win(WinKind::Info),
+            Act::Help => self.show_help(),
             Act::Open => { let sel = self.fv_deep_selection(); self.open_paths(&sel); }
             Act::NewFolder => { let dir = self.fv_current_dir(); self.spawn(move || Job::NewFolder(fs::new_folder(dir))); }
             Act::Duplicate => { let paths = self.fv_selected_paths(); if !paths.is_empty() { self.run_fs(format!("duplicated {} item(s)", paths.len()), move || fs::duplicate_paths(paths).map(|_| ())); } }
@@ -675,6 +684,8 @@ impl App {
             Act::Improv => self.show_win(WinKind::Improv),
             Act::IvNewRow | Act::IvNewCol => self.iv_new_item(a == Act::IvNewCol),
             Act::IvDelRow | Act::IvDelCol => self.iv_del_item(a == Act::IvDelCol),
+            Act::Co(b) => self.concur_btn(b),
+            Act::CoMove(right) => self.c_move(right),
             Act::ShellWin => self.show_win(WinKind::Shell),
             Act::Concurrence => self.show_win(WinKind::Concurrence),
             Act::LibrarianWin => self.show_win(WinKind::Librarian),
@@ -1115,6 +1126,7 @@ impl App {
             WinKind::Inspector => self.insp_draw(p, c),
             WinKind::Console => self.console_draw(p, c),
             WinKind::Info => self.info_draw(p, c),
+            WinKind::Help => self.help_draw(p, c),
             WinKind::Recycler => self.rec_draw(p, c),
             WinKind::Mandelbrot => self.mandel_draw(p, c),
             WinKind::Improv => self.iv_draw(p, c),

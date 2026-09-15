@@ -60,8 +60,11 @@ to `state.json.bad` and defaults are used (the Console says so).
   windows; otherwise a miniaturized window just hides until reopened from the menus.
 - Menus: full Workspace menu tree, submenus, tear-off menus that persist, key equivalents
   (Cmd on macOS, Ctrl on Windows), right-click main menu on the background. The main menu belongs
-  to the key window's application, as on NeXTSTEP: while the Improv window is key the menu is
-  Improv's, and it goes back to Workspace's when another window takes over.
+  to the key window's application, as on NeXTSTEP: while the Improv or Concurrence window is key
+  the menu is that application's, and it goes back to Workspace's when another window takes over.
+- Help: `Info ▸ Help…` (Cmd-?) opens a panel with a page for whichever window is key — the
+  Workspace, Inspector, Console, Recycler, Shell, Librarian, Mandelbrot, Improv or Concurrence —
+  listing what that application's keys and clicks do.
 - Shell (`Tools ▸ Shell…`, Cmd-T): a real terminal running your login shell, emulated by
   `alacritty_terminal` and drawn in the four grays with a block cursor and scrollback on our
   left-side scroller. Resize the window to change the grid; the window title follows the shell's.
@@ -83,8 +86,11 @@ to `state.json.bad` and defaults are used (the Console says so).
   draws the current topic as a 4:3 slide — every top-level topic is a slide, its children are its
   bullets; **Present** takes the whole Screen, a white slide on black with the menu, Dock and tiles
   out of the way, driven by Space, the arrow keys or a click, and Escape (or advancing past the last
-  slide) ends the show. Save writes the outline as `Presentation-N.txt` in your home folder; the
-  outline itself lives in `state.json`.
+  slide) ends the show. While its window is key the main menu is Concurrence's: `Topics ▸ Move ▸
+  Move Left` (Cmd-[) and `Move Right` (Cmd-]) are the real application's promote and demote, which
+  its manual documents Tab and Shift-Tab as shortcuts for; `View ▸ Outline`,
+  `Slide` and `Present` (Cmd-P) do what the buttons do, and `Save` (Cmd-S) writes the outline as
+  `Presentation-N.txt` in your home folder; the outline itself lives in `state.json`.
 
   ![Concurrence](docs/screenshots/concurrence.png)
 - Improv (`Tools ▸ Improv…`), after Lotus Improv (NeXT, 1991): a multi-dimensional worksheet with no

@@ -1,4 +1,5 @@
 //! Window chrome, scrollers, menus, glyphs — geometry taken from NeXTSTEP 1.0 screenshots (see docs/DECISIONS.md).
+use crate::concur::CBtn;
 use crate::geom::{rect, Pt, Rect};
 use crate::paint::*;
 
@@ -95,7 +96,7 @@ pub fn tile_bevel(p: &mut Painter, r: Rect) {
 // ---- windows -------------------------------------------------------------------------------
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
-pub enum WinKind { FileViewer, Inspector, Console, Info, Recycler, Mandelbrot, Improv, Shell, Concurrence, Librarian, Alert }
+pub enum WinKind { FileViewer, Inspector, Console, Info, Help, Recycler, Mandelbrot, Improv, Shell, Concurrence, Librarian, Alert }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum WinPart { Title, MiniBtn, CloseBtn, Resize(i8), Content }
@@ -264,9 +265,9 @@ impl Scroller {
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Act {
-    None, Disabled, InfoPanel, Open, NewFolder, Duplicate, Destroy, EmptyRecycler, Copy, Paste, SelectAll, CheckDisks,
+    None, Disabled, InfoPanel, Help, Open, NewFolder, Duplicate, Destroy, EmptyRecycler, Copy, Paste, SelectAll, CheckDisks,
     ViewBrowser, Scale1, Scale15, Scale2, ShowHidden, Backdrop, ShowDock, ShowMiniwindows, ShowRecycler, Inspector, ConsoleWin, Mandelbrot, Improv, ShellWin, Concurrence, LibrarianWin, FileViewerWin, RecyclerWin, ArrangeFront, Miniaturize, CloseWin, Hide, Quit,
-    IvNewRow, IvNewCol, IvDelRow, IvDelCol,
+    IvNewRow, IvNewCol, IvDelRow, IvDelCol, Co(CBtn), CoMove(bool),
 }
 
 pub struct ItemDef { pub label: &'static str, pub key: Option<char>, pub sub: Option<&'static [ItemDef]>, pub act: Act }
@@ -274,7 +275,7 @@ const fn item(label: &'static str, key: Option<char>, act: Act) -> ItemDef { Ite
 const fn sub(label: &'static str, sub: &'static [ItemDef]) -> ItemDef { ItemDef { label, key: None, sub: Some(sub), act: Act::None } }
 
 pub static SCALE_MENU: [ItemDef; 3] = [item("1×", None, Act::Scale1), item("1.5×", None, Act::Scale15), item("2×", None, Act::Scale2)];
-pub static INFO_MENU: [ItemDef; 3] = [item("Info Panel…", None, Act::InfoPanel), item("Preferences…", None, Act::Disabled), item("Help…", None, Act::Disabled)];
+pub static INFO_MENU: [ItemDef; 3] = [item("Info Panel…", None, Act::InfoPanel), item("Preferences…", None, Act::Disabled), item("Help…", Some('?'), Act::Help)];
 pub static FILE_MENU: [ItemDef; 7] = [
     item("Open", Some('o'), Act::Open), item("Open as Folder", Some('O'), Act::Disabled), item("New Folder", Some('n'), Act::NewFolder),
     item("Duplicate", Some('d'), Act::Duplicate), item("Compress", None, Act::Disabled), item("Destroy", Some('r'), Act::Destroy), item("Empty Recycler", None, Act::EmptyRecycler),
@@ -293,6 +294,17 @@ pub static TOOLS_MENU: [ItemDef; 9] = [item("Inspector…", Some('i'), Act::Insp
 pub static ITEM_MENU: [ItemDef; 4] = [item("New Row", None, Act::IvNewRow), item("New Column", None, Act::IvNewCol), item("Delete Row", None, Act::IvDelRow), item("Delete Column", None, Act::IvDelCol)];
 pub static IMPROV_MENU: [ItemDef; 5] = [sub("Info", &INFO_MENU), sub("Item", &ITEM_MENU), sub("Windows", &WINDOWS_MENU), item("Hide", Some('h'), Act::Hide), item("Quit", Some('q'), Act::Quit)];
 
+/// Concurrence's own menu, which takes over the main menu the same way. Topics ▸ Move is the
+/// original's, key equivalents and all: “Move Left takes the currently selected topic (or slide)
+/// and all of its descendants, and moves it to the left… Pressing the Tab key while a topic or
+/// slide is selected is the same as choosing Move Right, and Shift-tab as Move Left” (Concurrence
+/// manual, ch. 26). The rest of that menu — New Topic, Speaker Notes, Clone, Follow Master — is
+/// beyond this clone. View and Save are ours, standing for the button strip.
+pub static MOVE_MENU: [ItemDef; 2] = [item("Move Left", Some('['), Act::CoMove(false)), item("Move Right", Some(']'), Act::CoMove(true))];
+pub static TOPICS_MENU: [ItemDef; 1] = [sub("Move", &MOVE_MENU)];
+pub static CVIEW_MENU: [ItemDef; 3] = [item("Outline", None, Act::Co(CBtn::Outline)), item("Slide", None, Act::Co(CBtn::Slide)), item("Present", Some('p'), Act::Co(CBtn::Present))];
+pub static CONCUR_MENU: [ItemDef; 7] = [sub("Info", &INFO_MENU), sub("Topics", &TOPICS_MENU), sub("View", &CVIEW_MENU), item("Save", Some('s'), Act::Co(CBtn::Save)), sub("Windows", &WINDOWS_MENU), item("Hide", Some('h'), Act::Hide), item("Quit", Some('q'), Act::Quit)];
+
 pub static WINDOWS_MENU: [ItemDef; 5] = [item("File Viewer", None, Act::FileViewerWin), item("Recycler", None, Act::RecyclerWin), item("Arrange in Front", None, Act::ArrangeFront), item("Miniaturize Window", Some('m'), Act::Miniaturize), item("Close Window", Some('w'), Act::CloseWin)];
 pub static SERVICES_MENU: [ItemDef; 1] = [item("No Services Available", None, Act::Disabled)];
 pub static MAIN_MENU: [ItemDef; 10] = [
@@ -303,7 +315,7 @@ pub static MAIN_MENU: [ItemDef; 10] = [
 
 /// A torn-off menu is remembered by its path, which may start in any application's menu.
 pub fn resolve_path(path: &[String]) -> Option<&'static [ItemDef]> {
-    [&MAIN_MENU[..], &IMPROV_MENU[..]].into_iter().find_map(|root| {
+    [&MAIN_MENU[..], &IMPROV_MENU[..], &CONCUR_MENU[..]].into_iter().find_map(|root| {
         let mut items = root;
         for label in path { items = items.iter().find(|i| i.label == label)?.sub?; }
         Some(items)

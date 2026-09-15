@@ -109,6 +109,23 @@ impl App {
     pub fn c_slides(&self) -> Vec<usize> { (0..self.concur.rows.len()).filter(|&i| self.concur.rows[i].level == 0).collect() }
     fn c_slide_of(&self, row: usize) -> usize { self.c_slides().iter().rposition(|&i| i <= row).unwrap_or(0) }
 
+    /// Topics ▸ Move Right (Tab) demotes the selected topic and its descendants one level, Move
+    /// Left (Shift-Tab) promotes them. A topic cannot indent past the one above it — that would
+    /// skip a level — and the outline is five levels deep at most.
+    pub fn c_can_move(&self, right: bool) -> bool {
+        if self.concur.slides || self.concur.show.is_some() { return false }
+        let (rows, sel) = (&self.concur.rows, self.concur.sel);
+        let Some(r) = rows.get(sel) else { return false };
+        if !right { return r.level > 0 }
+        sel > 0 && r.level <= rows[sel - 1].level && r.level < MAX_LEVEL
+    }
+    pub fn c_move(&mut self, right: bool) {
+        if !self.c_can_move(right) { return }
+        let (sel, end) = (self.concur.sel, self.c_end(self.concur.sel));
+        for r in &mut self.concur.rows[sel..end] { r.level = if right { r.level + 1 } else { r.level - 1 }; }
+        self.c_edited();
+    }
+
     fn c_edited(&mut self) {
         self.state.concurrence = self.concur.to_lines();
         self.dirty();
@@ -248,11 +265,7 @@ impl App {
                 self.concur.sel = sel + 1;
                 self.concur.caret = 0;
             }
-            Key::Tab => {
-                let end = self.c_end(sel);
-                let ok = if mods.shift { self.concur.rows[sel].level > 0 } else { sel > 0 && self.concur.rows[sel].level <= self.concur.rows[sel - 1].level && self.concur.rows[sel].level < MAX_LEVEL };
-                if ok { for r in &mut self.concur.rows[sel..end] { r.level = if mods.shift { r.level - 1 } else { r.level + 1 }; } }
-            }
+            Key::Tab => self.c_move(!mods.shift),
             Key::Backspace if caret > 0 => {
                 let b = char_byte(&self.concur.rows[sel].text, caret - 1);
                 self.concur.rows[sel].text.remove(b);
@@ -453,6 +466,35 @@ mod tests {
         assert_eq!(a.win(WinKind::Concurrence).r, before, "the window comes back where it was");
         assert!(a.win(WinKind::Concurrence).chrome);
         assert_eq!(a.concur.sel, *a.c_slides().last().unwrap(), "the outline lands on the last slide shown");
+    }
+
+    #[test]
+    fn the_menu_belongs_to_concurrence_while_its_window_is_key() {
+        let mut a = app();
+        let main = |a: &App| a.menus.iter().find(|m| m.kind == MenuKind::Main).unwrap().title.clone();
+        assert_eq!(main(&a), "Concurrence");
+        let state = |a: &App, b| a.item_state(CVIEW_MENU.iter().find(|i| i.act == Act::Co(b)).unwrap());
+        assert_eq!(state(&a, CBtn::Outline), (false, true), "the Outline view is the marked one");
+        // Topics ▸ Move, the original's promote/demote: the same commands Tab and Shift-Tab give
+        let mv = |a: &App, right| a.item_state(MOVE_MENU.iter().find(|i| i.act == Act::CoMove(right)).unwrap());
+        assert_eq!((mv(&a, false), mv(&a, true)), ((true, false), (true, false)), "the first topic moves neither way");
+        a.concur.sel = 2;
+        a.act(Act::CoMove(true));
+        assert_eq!(a.concur.rows[2].level, 2);
+        assert_eq!(mv(&a, true), (true, false), "and no further: that would skip a level");
+        a.act(Act::CoMove(false));
+        assert_eq!(a.concur.rows[2].level, 1);
+        assert_eq!(a.state.concurrence[2], "\tLighthouse Design, 1992", "the move went into state.json");
+
+        a.act(Act::Co(CBtn::Slide));
+        assert!(a.concur.slides);
+        assert_eq!(mv(&a, true), (true, false), "the Slide view has no topics to move");
+        assert_eq!(state(&a, CBtn::Slide), (false, true));
+        a.concur.rows.clear();
+        assert_eq!(state(&a, CBtn::Present), (true, false), "nothing to present without slides");
+
+        a.close_win(WinKind::Concurrence);
+        assert_eq!(main(&a), "Workspace", "the menu goes back when the window does");
     }
 
     #[test]

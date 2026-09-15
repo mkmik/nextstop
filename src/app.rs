@@ -56,7 +56,7 @@ pub enum Pending { Nothing, Trash(Vec<String>), Destroy(Vec<String>), EmptyTrash
 pub struct Alert { pub message: String, pub detail: String, pub buttons: Vec<String>, pub pending: Pending, pub prev_key: Option<WinKind> }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum ScrollId { Col(u64), Browser, Console, InspText, Recycler, Shell, Outline, Librarian }
+pub enum ScrollId { Col(u64), Browser, Console, InspText, Recycler, Shell, Outline, Librarian, Sheet, SheetH }
 
 /// Every press-and-release control on the Screen (§9.2).
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -179,10 +179,11 @@ impl App {
         a.resizable = false; a.mini_btn = false; a.close_btn = false;
         let zoom = cfg.scale_override.filter(|z| (0.5..=4.0).contains(z)).unwrap_or(st.scale);
         let concur = Concur::from_lines(&st.concurrence);
+        let improv = Improv::from_sheet(&st.improv);
         let mut app = App {
             w: st.os_window.w, h: st.os_window.h, zoom, quit: false, redraw: true, minimize: false, cfg, post, fonts,
             home: home.clone(), roots, is_win, state: st, save_at: None, wins, key: None, activations: vec![], zc: 0, menu_seq: 0, menus: vec![], alert: None,
-            fv: FileViewer::default(), insp: Inspector::default(), dock: Dock::default(), rec: RecWin::default(), mandel: Mandel::default(), improv: Improv::default(), shell: Shell::default(), concur, lib: Librarian::default(),
+            fv: FileViewer::default(), insp: Inspector::default(), dock: Dock::default(), rec: RecWin::default(), mandel: Mandel::default(), improv, shell: Shell::default(), concur, lib: Librarian::default(),
             console, console_scroll: 0, console_stick: true, capture: None, mouse: pt(0, 0), focused: true,
             refresh_at: Instant::now() + Duration::from_secs(5), clipboard: vec![], now: Instant::now(),
         };
@@ -306,6 +307,18 @@ impl App {
     pub fn make_key(&mut self, k: WinKind) {
         self.front(k);
         if self.key != Some(k) { self.key = Some(k); }
+        self.sync_main_menu();
+    }
+    /// The main menu belongs to the key window's application: while Improv is the key window the
+    /// menu is Improv's, the way a NeXTSTEP application owns the menu for as long as it is active.
+    fn sync_main_menu(&mut self) {
+        let (title, items) = self.main_menu();
+        if !self.menus.iter().any(|m| m.kind == MenuKind::Main && m.title != title) { return }
+        self.close_submenus(); // the outgoing menu's submenus go with it
+        let Some(i) = self.menus.iter().position(|m| m.kind == MenuKind::Main) else { return };
+        self.menus[i].title = title.into();
+        self.menus[i].items = items;
+        self.menus[i].w = MenuInst::width(&self.fonts, items, title);
     }
     /// Explicit user activation must also raise/focus the existing OS window.
     /// Native focus notifications use make_key alone to avoid a feedback loop.
@@ -354,6 +367,7 @@ impl App {
     fn drop_key(&mut self, k: WinKind) {
         if self.key != Some(k) { return; }
         self.key = self.wins.iter().filter(|w| w.shown() && w.kind != k && w.kind != WinKind::Alert).max_by_key(|w| w.z).map(|w| w.kind);
+        self.sync_main_menu();
     }
     pub fn miniaturize(&mut self, k: WinKind) {
         if self.win(k).mini.is_some() || !self.win(k).visible || k == WinKind::Alert { return; }
@@ -515,6 +529,13 @@ impl App {
             }
         }
     }
+    /// Whose menu the main menu is: the key window's application.
+    fn main_menu(&self) -> (&'static str, &'static [ItemDef]) {
+        match self.key {
+            Some(WinKind::Improv) if self.win(WinKind::Improv).shown() => ("Improv", &IMPROV_MENU),
+            _ => ("Workspace", &MAIN_MENU),
+        }
+    }
     fn next_menu_id(&mut self) -> u64 { self.menu_seq += 1; self.menu_seq }
     pub fn item_state(&self, it: &ItemDef) -> (bool, bool) {
         match it.act {
@@ -531,6 +552,7 @@ impl App {
             Act::ShowDock => (false, self.state.dock_visible),
             Act::ShowMiniwindows => (false, self.state.miniwindows_visible),
             Act::ShowRecycler => (false, self.state.recycler_visible),
+            Act::IvNewRow | Act::IvDelRow | Act::IvNewCol | Act::IvDelCol => (!self.iv_can(it.act), false),
             _ => (false, false),
         }
     }
@@ -610,9 +632,10 @@ impl App {
     }
     fn popup_menu(&mut self, p: Pt) {
         self.close_submenus();
-        let w = MenuInst::width(&self.fonts, &MAIN_MENU, "Workspace");
+        let (title, items) = self.main_menu();
+        let w = MenuInst::width(&self.fonts, items, title);
         let id = self.next_menu_id();
-        self.menus.push(MenuInst { id, title: "Workspace".into(), items: &MAIN_MENU, path: vec![], pos: p, w, kind: MenuKind::Popup, open_item: None });
+        self.menus.push(MenuInst { id, title: title.into(), items, path: vec![], pos: p, w, kind: MenuKind::Popup, open_item: None });
     }
     /// Topmost menu part under `p`.
     fn menu_hit(&self, p: Pt) -> Option<(usize, MenuPart)> {
@@ -650,6 +673,8 @@ impl App {
             Act::ConsoleWin => self.show_win(WinKind::Console),
             Act::Mandelbrot => self.show_win(WinKind::Mandelbrot),
             Act::Improv => self.show_win(WinKind::Improv),
+            Act::IvNewRow | Act::IvNewCol => self.iv_new_item(a == Act::IvNewCol),
+            Act::IvDelRow | Act::IvDelCol => self.iv_del_item(a == Act::IvDelCol),
             Act::ShellWin => self.show_win(WinKind::Shell),
             Act::Concurrence => self.show_win(WinKind::Concurrence),
             Act::LibrarianWin => self.show_win(WinKind::Librarian),
@@ -771,6 +796,8 @@ impl App {
             ScrollId::Shell => self.shell_scroller().pos,
             ScrollId::Outline => self.c_scroller().pos,
             ScrollId::Librarian => self.lib.scroll,
+            ScrollId::Sheet => self.iv_scrollers().0.pos,
+            ScrollId::SheetH => self.iv_scrollers().1.pos,
         }
     }
     pub fn set_scroll(&mut self, id: ScrollId, v: i32) {
@@ -785,6 +812,8 @@ impl App {
             ScrollId::Shell => self.shell_set_scroll(v),
             ScrollId::Outline => self.concur.scroll = v,
             ScrollId::Librarian => self.lib.scroll = v,
+            ScrollId::Sheet => self.improv.scroll.y = v,
+            ScrollId::SheetH => self.improv.scroll.x = v,
         }
         self.redraw = true;
     }
@@ -798,6 +827,8 @@ impl App {
             ScrollId::Shell => Some(self.shell_scroller()),
             ScrollId::Outline => Some(self.c_scroller()),
             ScrollId::Librarian => Some(self.lib_scroller()),
+            ScrollId::Sheet => Some(self.iv_scrollers().0),
+            ScrollId::SheetH => Some(self.iv_scrollers().1),
         }
     }
 
@@ -895,6 +926,7 @@ impl App {
                 WinKind::Mandelbrot => self.mandel_btn_hit(p),
                 WinKind::Shell => self.shell_btn_hit(p),
                 WinKind::Concurrence => self.concur_btn_hit(p),
+                WinKind::Improv => self.iv_btn_hit(p),
                 WinKind::Librarian => self.lib_btn_hit(p),
                 _ => None,
             },
@@ -921,7 +953,7 @@ impl App {
             Btn::AlertBtn(i) => self.alert_button(i),
             Btn::Tile(t) => self.dock_tile_click(t),
             Btn::Miniwin(_) => {}
-            Btn::ScrollArrow(id, d) => { let step = match id { ScrollId::Browser => crate::fileviewer::COL_PITCH, ScrollId::Col(_) => crate::fileviewer::CELL_H, ScrollId::Shell => 1, _ => 18 }; self.scroll_by(id, d as i32 * step); }
+            Btn::ScrollArrow(id, d) => { let step = match id { ScrollId::Browser => crate::fileviewer::COL_PITCH, ScrollId::Col(_) => crate::fileviewer::CELL_H, ScrollId::Shell => 1, ScrollId::Sheet => crate::improv::ROW_H, ScrollId::SheetH => crate::improv::COL_W, _ => 18 }; self.scroll_by(id, d as i32 * step); }
             Btn::Shelf(i) => { if let Some(p) = self.state.shelf.get(i).cloned() { self.fv_navigate(&p); } }
             Btn::PathItem(i) => { if let Some(p) = self.fv_path_components().get(i).cloned() { self.fv_navigate(&p); } }
             Btn::InspPopup => self.insp.popup_open = !self.insp.popup_open,
@@ -954,6 +986,7 @@ impl App {
             WinKind::Recycler => self.scroll_by(ScrollId::Recycler, dy),
             WinKind::Shell => self.shell_wheel(dy),
             WinKind::Concurrence => self.scroll_by(ScrollId::Outline, dy),
+            WinKind::Improv => { self.scroll_by(ScrollId::Sheet, dy); self.scroll_by(ScrollId::SheetH, dx); }
             WinKind::Librarian => self.scroll_by(ScrollId::Librarian, dy),
             _ => {}
         }
@@ -969,7 +1002,8 @@ impl App {
         if self.key == Some(WinKind::Shell) && self.win(WinKind::Shell).shown() && !(cfg!(target_os = "macos") && mods.cmd) { self.shell_key(k, mods); return; }
         if mods.cmd {
             if let Key::Char(c) = k {
-                if let Some(it) = find_key(&MAIN_MENU, c) {
+                let main = self.menus.iter().find(|m| m.kind == MenuKind::Main).map_or(&MAIN_MENU[..], |m| m.items);
+                if let Some(it) = find_key(main, c) {
                     let (disabled, _) = self.item_state(it);
                     if !disabled { self.close_submenus(); self.act(it.act); }
                 }

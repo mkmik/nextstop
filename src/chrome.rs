@@ -266,6 +266,7 @@ impl Scroller {
 pub enum Act {
     None, Disabled, InfoPanel, Open, NewFolder, Duplicate, Destroy, EmptyRecycler, Copy, Paste, SelectAll, CheckDisks,
     ViewBrowser, Scale1, Scale15, Scale2, ShowHidden, Backdrop, ShowDock, ShowMiniwindows, ShowRecycler, Inspector, ConsoleWin, Mandelbrot, Improv, ShellWin, Concurrence, LibrarianWin, FileViewerWin, RecyclerWin, ArrangeFront, Miniaturize, CloseWin, Hide, Quit,
+    IvNewRow, IvNewCol, IvDelRow, IvDelCol,
 }
 
 pub struct ItemDef { pub label: &'static str, pub key: Option<char>, pub sub: Option<&'static [ItemDef]>, pub act: Act }
@@ -286,6 +287,12 @@ pub static VIEW_MENU: [ItemDef; 9] = [
     item("Show Recycler Tile", None, Act::ShowRecycler), item("Screen Backdrop", None, Act::Backdrop),
 ];
 pub static TOOLS_MENU: [ItemDef; 9] = [item("Inspector…", Some('i'), Act::Inspector), item("Finder…", None, Act::Disabled), item("Librarian…", Some('l'), Act::LibrarianWin), item("Processes…", None, Act::Disabled), item("Console…", None, Act::ConsoleWin), item("Shell…", Some('t'), Act::ShellWin), item("Concurrence…", None, Act::Concurrence), item("Mandelbrot…", None, Act::Mandelbrot), item("Improv…", None, Act::Improv)];
+/// Improv's own menu, which takes over the main menu while its window is the key one — a NeXTSTEP
+/// application owns the menu for as long as it is active. A row is one item of the innermost
+/// category in the row zone, a column one item of the innermost category in the column zone.
+pub static ITEM_MENU: [ItemDef; 4] = [item("New Row", None, Act::IvNewRow), item("New Column", None, Act::IvNewCol), item("Delete Row", None, Act::IvDelRow), item("Delete Column", None, Act::IvDelCol)];
+pub static IMPROV_MENU: [ItemDef; 5] = [sub("Info", &INFO_MENU), sub("Item", &ITEM_MENU), sub("Windows", &WINDOWS_MENU), item("Hide", Some('h'), Act::Hide), item("Quit", Some('q'), Act::Quit)];
+
 pub static WINDOWS_MENU: [ItemDef; 5] = [item("File Viewer", None, Act::FileViewerWin), item("Recycler", None, Act::RecyclerWin), item("Arrange in Front", None, Act::ArrangeFront), item("Miniaturize Window", Some('m'), Act::Miniaturize), item("Close Window", Some('w'), Act::CloseWin)];
 pub static SERVICES_MENU: [ItemDef; 1] = [item("No Services Available", None, Act::Disabled)];
 pub static MAIN_MENU: [ItemDef; 10] = [
@@ -294,10 +301,13 @@ pub static MAIN_MENU: [ItemDef; 10] = [
     item("Hide", Some('h'), Act::Hide), item("Quit", Some('q'), Act::Quit),
 ];
 
+/// A torn-off menu is remembered by its path, which may start in any application's menu.
 pub fn resolve_path(path: &[String]) -> Option<&'static [ItemDef]> {
-    let mut items: &'static [ItemDef] = &MAIN_MENU;
-    for label in path { items = items.iter().find(|i| i.label == label)?.sub?; }
-    Some(items)
+    [&MAIN_MENU[..], &IMPROV_MENU[..]].into_iter().find_map(|root| {
+        let mut items = root;
+        for label in path { items = items.iter().find(|i| i.label == label)?.sub?; }
+        Some(items)
+    })
 }
 pub fn find_key(items: &'static [ItemDef], c: char) -> Option<&'static ItemDef> {
     items.iter().find_map(|i| if let Some(s) = i.sub { find_key(s, c) } else if i.key == Some(c) { Some(i) } else { None })

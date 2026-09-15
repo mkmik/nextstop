@@ -17,6 +17,17 @@ pub struct TornMenu { pub path: Vec<String>, pub x: i32, pub y: i32 }
 #[serde(default)]
 pub struct WinState { pub x: i32, pub y: i32, pub w: i32, pub h: i32, pub open: bool, #[serde(skip_serializing_if = "String::is_empty")] pub path: String }
 
+/// One Improv category: its name, its items and which zone of the tile bar it sits in.
+#[derive(Serialize, Deserialize, Clone, Debug, Default)]
+#[serde(default)]
+pub struct SheetCat { pub name: String, pub items: Vec<String>, pub col: bool }
+
+/// The Improv worksheet: the categories, the figures typed into it and its formulas.
+/// A cell is its item index per category, in `cats` order. Empty means the sample worksheet.
+#[derive(Serialize, Deserialize, Clone, Debug, Default)]
+#[serde(default)]
+pub struct Sheet { pub cats: Vec<SheetCat>, pub cells: Vec<(Vec<u8>, f64)>, pub formulas: Vec<String> }
+
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(default)]
 pub struct Windows { pub file_viewer: WinState, pub inspector: WinState, pub console: WinState, pub recycler: WinState, pub mandelbrot: WinState, pub improv: WinState, pub shell: WinState, pub concurrence: WinState, pub librarian: WinState }
@@ -28,7 +39,7 @@ impl Default for Windows {
             console: WinState { x: 200, y: 500, w: 480, h: 240, open: false, path: String::new() },
             recycler: WinState { x: 300, y: 300, w: 320, h: 240, open: false, path: String::new() },
             mandelbrot: WinState { x: 200, y: 80, w: 520, h: 528, open: false, path: String::new() },
-            improv: WinState { x: 200, y: 120, w: 680, h: 348, open: false, path: String::new() },
+            improv: WinState { x: 200, y: 120, w: 680, h: 372, open: false, path: String::new() },
             shell: WinState { x: 160, y: 120, w: 591, h: 374, open: false, path: String::new() },
             concurrence: WinState { x: 140, y: 60, w: 560, h: 440, open: false, path: String::new() },
             librarian: WinState { x: 240, y: 100, w: 560, h: 420, open: false, path: String::new() },
@@ -54,11 +65,13 @@ pub struct State {
     pub shelf: Vec<String>,
     /// The Concurrence outline, one tab-indented line per topic.
     pub concurrence: Vec<String>,
+    /// The Improv worksheet.
+    pub improv: Sheet,
     pub windows: Windows,
 }
 impl Default for State {
     fn default() -> Self {
-        State { version: VERSION, os_window: WH { w: 1120, h: 832 }, scale: 1.0, show_hidden: false, animations: true, backdrop: false, dock_visible: false, miniwindows_visible: false, recycler_visible: false, menu_pos: XY { x: 0, y: 0 }, torn_menus: vec![], dock: vec![], shelf: vec![], concurrence: vec![], windows: Windows::default() }
+        State { version: VERSION, os_window: WH { w: 1120, h: 832 }, scale: 1.0, show_hidden: false, animations: true, backdrop: false, dock_visible: false, miniwindows_visible: false, recycler_visible: false, menu_pos: XY { x: 0, y: 0 }, torn_menus: vec![], dock: vec![], shelf: vec![], concurrence: vec![], improv: Sheet::default(), windows: Windows::default() }
     }
 }
 

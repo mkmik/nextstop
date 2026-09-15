@@ -59,7 +59,9 @@ to `state.json.bad` and defaults are used (the Console says so).
 - Miniwindows: `View ▸ Show Miniwindows` (off by default) shows NeXT-style tiles for miniaturized
   windows; otherwise a miniaturized window just hides until reopened from the menus.
 - Menus: full Workspace menu tree, submenus, tear-off menus that persist, key equivalents
-  (Cmd on macOS, Ctrl on Windows), right-click main menu on the background.
+  (Cmd on macOS, Ctrl on Windows), right-click main menu on the background. The main menu belongs
+  to the key window's application, as on NeXTSTEP: while the Improv window is key the menu is
+  Improv's, and it goes back to Workspace's when another window takes over.
 - Shell (`Tools ▸ Shell…`, Cmd-T): a real terminal running your login shell, emulated by
   `alacritty_terminal` and drawn in the four grays with a block cursor and scrollback on our
   left-side scroller. Resize the window to change the grid; the window title follows the shell's.
@@ -89,7 +91,20 @@ to `state.json.bad` and defaults are used (the Console says so).
   A1/B2 anywhere. The data is a cube of named categories (Products × Items × Quarters); formulas are
   written in plain English over the item names — `Revenue = Units * Price` — and apply to every cell
   of that item; the category tiles in the bar at the top are dragged between the row zone and the
-  column zone to pivot the view. Click a cell and type to enter a figure, click a formula to edit it.
+  column zone to pivot the view. Click a cell and type to enter a figure, click a formula to edit it,
+  and click the empty line under the formulas to write another. While the window is key the main
+  menu is Improv's: `Item ▸ New Row` and `New Column` add an item to the innermost category of that
+  zone and open its header for typing; `Delete Row` and `Delete Column` take the one the selection
+  is in, figures and all. Click a row or column header to pick it, click the one already picked to
+  rename it. The sheet has a scroller down its left edge and another along the bottom — the headers
+  scroll with it, the arrow keys keep the selected cell in view, and both slots go empty when the
+  whole worksheet fits.
+  Formulas have `+ - * / ( )`, the comparisons `< > = <= >= <>`, and the functions `Sum`, `Avg`,
+  `Min`, `Max`, `Count`, `Round`, `Abs`, `Int`, `Sqrt` and `If`. A category name as an argument
+  brings one figure per item, so `Average = Avg(Quarters)` averages each row across the quarters
+  (leaving its own cell out); everything else is one value, as in `Max(Units, Price)`. The
+  worksheet — categories, figures and formulas — lives in `state.json` and comes back on the next
+  launch.
 
   ![Improv](docs/screenshots/improv.png)
 - Persistence of window, menu, Dock, Shelf, backdrop, tile visibility and scale settings.
@@ -112,8 +127,12 @@ to `state.json.bad` and defaults are used (the Console says so).
   or per-slide layouts, no undo, and no document files — Save exports the outline, there is no Open.
 - Shell: no copy and paste or mouse selection yet; colors are mapped onto the four grays; on Windows,
   Ctrl shortcuts go to the shell while it is the key window.
-- Improv: no scrollers, so a view bigger than the window is clipped (resize it); item names used in
-  formulas must be single words; no number formats, no aggregates, and the worksheet is not saved.
+- Improv: item names used in formulas must be single words; no number formats and no undo;
+  categories themselves cannot be added, removed or renamed (their items can), so a worksheet
+  starts from the sample three. `If`
+  evaluates both of its branches, deleting an item leaves any formula that named it behind with its
+  error, and a cell claimed by two formulas takes the value of the later one, with no conflict
+  marker.
 - Without the backdrop there is no right-click main menu (nothing of ours to click on the desktop).
 
 ## Development

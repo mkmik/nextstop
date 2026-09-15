@@ -78,6 +78,13 @@ to `state.json.bad` and defaults are used (the Console says so).
   outline itself lives in `state.json`.
 
   ![Concurrence](docs/screenshots/concurrence.png)
+- Improv (`Tools ▸ Improv…`), after Lotus Improv (NeXT, 1991): a multi-dimensional worksheet with no
+  A1/B2 anywhere. The data is a cube of named categories (Products × Items × Quarters); formulas are
+  written in plain English over the item names — `Revenue = Units * Price` — and apply to every cell
+  of that item; the category tiles in the bar at the top are dragged between the row zone and the
+  column zone to pivot the view. Click a cell and type to enter a figure, click a formula to edit it.
+
+  ![Improv](docs/screenshots/improv.png)
 - Persistence of window, menu, Dock, Shelf, backdrop, tile visibility and scale settings.
 
 ## Known limitations
@@ -96,6 +103,8 @@ to `state.json.bad` and defaults are used (the Console says so).
   or per-slide layouts, no undo, and no document files — Save exports the outline, there is no Open.
 - Shell: no copy and paste or mouse selection yet; colors are mapped onto the four grays; on Windows,
   Ctrl shortcuts go to the shell while it is the key window.
+- Improv: no scrollers, so a view bigger than the window is clipped (resize it); item names used in
+  formulas must be single words; no number formats, no aggregates, and the worksheet is not saved.
 - Without the backdrop there is no right-click main menu (nothing of ours to click on the desktop).
 
 ## Development

@@ -41,6 +41,13 @@ The owner then asked for the 2.0 (1990) aesthetics. Measured from toastytech's 2
 - All 48 px icons were redrawn in the style of the 2.0 stock icons: grayscale only (no accent colours), objects in shallow 3D with a lit top face and a dark side, black outlines, white highlights, 50 % dither for shading and roofs, and a dithered drop shadow to the lower right. Documents share one page shape with a folded corner. They remain original drawings; nothing was traced from NeXT bitmaps (§12).
 - The 16 px cell icons were removed with the 1.0 browser; the Browser shows names only, as NeXTSTEP did.
 
+## Extra application: Concurrence (v0.5)
+
+- Lighthouse Design's Concurrence was an outliner, a slide editor and a presenter over one document. Ours keeps the outliner and the presenter and reduces the editor to the one layout the outline already implies: a level-0 topic is a slide title, its descendants are its bullets, indented and drawn smaller with a square or dash marker. No styles, masters, images, charts, transitions or speaker notes — the slide is a rendering of the outline, not a second document.
+- The outline is a flat `Vec<Row { text, level, collapsed }>`; a subtree is just the following rows with a greater level, which turns demote/promote, collapse and "the bullets of this slide" into range operations. It is persisted in `state.json` (one tab-indented line per topic) like every other piece of state, and `Save` exports the same text as `Presentation-N.txt` in the home folder, as Mandelbrot's Save does for PNGs. There is no Open and no document window: this application has one document.
+- The show is the same window with `Win::chrome = false` and the rect of the whole Screen, and `surfaces()` drops the menus, Dock and tiles while it runs, so a presentation is really full-screen instead of a window with a title bar under a floating menu. Escape, a click past the last slide, or closing the window restores the saved rect and the chrome.
+- Text editing is a caret in one row (insert, Backspace/Delete, Left/Right/Home/End, click to place it); there is no selection, no undo, and no wrapping.
+
 ## Extra application: Shell (v0.3.2)
 
 - A terminal window named as in 1.0. The emulation (PTY, VT parser, cell grid, scrollback) is `alacritty_terminal` 0.26; we only render cells with Liberation Mono 12 px in 7×14 cells, draw the cursor (block when key, hollow when not), forward keys as xterm byte sequences (arrows honour application-cursor mode, Ctrl-letter → control codes, Alt → ESC prefix) and map the scrollback onto our scroller. Terminal colors collapse to the four grays: chromatic text becomes dark gray so it stays legible on the white background; bold is faked by drawing the glyph twice.

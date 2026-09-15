@@ -95,7 +95,7 @@ pub fn tile_bevel(p: &mut Painter, r: Rect) {
 // ---- windows -------------------------------------------------------------------------------
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
-pub enum WinKind { FileViewer, Inspector, Console, Info, Recycler, Mandelbrot, Shell, Librarian, Alert }
+pub enum WinKind { FileViewer, Inspector, Console, Info, Recycler, Mandelbrot, Shell, Concurrence, Librarian, Alert }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum WinPart { Title, MiniBtn, CloseBtn, Resize(i8), Content }
@@ -105,7 +105,7 @@ pub struct Win {
     pub r: Rect,
     pub title: String,
     pub min_w: i32, pub min_h: i32,
-    pub resizable: bool, pub mini_btn: bool, pub close_btn: bool,
+    pub resizable: bool, pub mini_btn: bool, pub close_btn: bool, pub chrome: bool,
     pub visible: bool,
     pub mini: Option<usize>,
     pub icon: &'static str,
@@ -114,13 +114,14 @@ pub struct Win {
 
 impl Win {
     pub fn new(kind: WinKind, r: Rect, title: &str, icon: &'static str) -> Win {
-        Win { kind, r, title: title.into(), min_w: 120, min_h: 60, resizable: true, mini_btn: true, close_btn: true, visible: false, mini: None, icon, z: 0 }
+        Win { kind, r, title: title.into(), min_w: 120, min_h: 60, resizable: true, mini_btn: true, close_btn: true, chrome: true, visible: false, mini: None, icon, z: 0 }
     }
-    pub fn title_bar(&self) -> Rect { rect(self.r.x, self.r.y, self.r.w, TITLE_H) }
-    pub fn content(&self) -> Rect { rect(self.r.x, self.r.y + TITLE_H, self.r.w, self.r.h - TITLE_H - if self.resizable { RESIZE_H } else { 0 }) }
+    /// A window without chrome (the Concurrence show) is all content.
+    pub fn title_bar(&self) -> Rect { rect(self.r.x, self.r.y, self.r.w, if self.chrome { TITLE_H } else { 0 }) }
+    pub fn content(&self) -> Rect { let t = self.title_bar().h; rect(self.r.x, self.r.y + t, self.r.w, self.r.h - t - if self.resizable { RESIZE_H } else { 0 }) }
     pub fn resize_bar(&self) -> Option<Rect> { self.resizable.then(|| rect(self.r.x, self.r.bottom() - RESIZE_H, self.r.w, RESIZE_H)) }
-    pub fn mini_rect(&self) -> Option<Rect> { self.mini_btn.then(|| rect(self.r.x + 3, self.r.y + 3, 14, 14)) }
-    pub fn close_rect(&self) -> Option<Rect> { self.close_btn.then(|| rect(self.r.right() - 17, self.r.y + 3, 14, 14)) }
+    pub fn mini_rect(&self) -> Option<Rect> { (self.mini_btn && self.chrome).then(|| rect(self.r.x + 3, self.r.y + 3, 14, 14)) }
+    pub fn close_rect(&self) -> Option<Rect> { (self.close_btn && self.chrome).then(|| rect(self.r.right() - 17, self.r.y + 3, 14, 14)) }
     pub fn shown(&self) -> bool { self.visible && self.mini.is_none() }
 
     pub fn hit(&self, p: Pt) -> Option<WinPart> {
@@ -141,6 +142,7 @@ impl Win {
     }
 
     pub fn draw_chrome(&self, p: &mut Painter, key: bool, pressed: Option<WinPart>) {
+        if !self.chrome { return; }
         let r = self.r;
         p.outline(rect(r.x - 1, r.y - 1, r.w + 2, r.h + 2), BLACK);
         // title bar: highlight row/column, fill, dark row + column, black separator
@@ -263,7 +265,7 @@ impl Scroller {
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Act {
     None, Disabled, InfoPanel, Open, NewFolder, Duplicate, Destroy, EmptyRecycler, Copy, Paste, SelectAll, CheckDisks,
-    ViewBrowser, Scale1, Scale15, Scale2, ShowHidden, Backdrop, ShowDock, ShowMiniwindows, ShowRecycler, Inspector, ConsoleWin, Mandelbrot, ShellWin, LibrarianWin, FileViewerWin, RecyclerWin, ArrangeFront, Miniaturize, CloseWin, Hide, Quit,
+    ViewBrowser, Scale1, Scale15, Scale2, ShowHidden, Backdrop, ShowDock, ShowMiniwindows, ShowRecycler, Inspector, ConsoleWin, Mandelbrot, ShellWin, Concurrence, LibrarianWin, FileViewerWin, RecyclerWin, ArrangeFront, Miniaturize, CloseWin, Hide, Quit,
 }
 
 pub struct ItemDef { pub label: &'static str, pub key: Option<char>, pub sub: Option<&'static [ItemDef]>, pub act: Act }
@@ -283,7 +285,7 @@ pub static VIEW_MENU: [ItemDef; 9] = [
     item("Show Hidden Files", None, Act::ShowHidden), item("Show Dock", None, Act::ShowDock), item("Show Miniwindows", None, Act::ShowMiniwindows),
     item("Show Recycler Tile", None, Act::ShowRecycler), item("Screen Backdrop", None, Act::Backdrop),
 ];
-pub static TOOLS_MENU: [ItemDef; 7] = [item("Inspector…", Some('i'), Act::Inspector), item("Finder…", None, Act::Disabled), item("Librarian…", Some('l'), Act::LibrarianWin), item("Processes…", None, Act::Disabled), item("Console…", None, Act::ConsoleWin), item("Shell…", Some('t'), Act::ShellWin), item("Mandelbrot…", None, Act::Mandelbrot)];
+pub static TOOLS_MENU: [ItemDef; 8] = [item("Inspector…", Some('i'), Act::Inspector), item("Finder…", None, Act::Disabled), item("Librarian…", Some('l'), Act::LibrarianWin), item("Processes…", None, Act::Disabled), item("Console…", None, Act::ConsoleWin), item("Shell…", Some('t'), Act::ShellWin), item("Concurrence…", None, Act::Concurrence), item("Mandelbrot…", None, Act::Mandelbrot)];
 pub static WINDOWS_MENU: [ItemDef; 5] = [item("File Viewer", None, Act::FileViewerWin), item("Recycler", None, Act::RecyclerWin), item("Arrange in Front", None, Act::ArrangeFront), item("Miniaturize Window", Some('m'), Act::Miniaturize), item("Close Window", Some('w'), Act::CloseWin)];
 pub static SERVICES_MENU: [ItemDef; 1] = [item("No Services Available", None, Act::Disabled)];
 pub static MAIN_MENU: [ItemDef; 10] = [

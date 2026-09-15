@@ -75,6 +75,16 @@ to `state.json.bad` and defaults are used (the Console says so).
   depth control, and Save to a PNG in your home folder.
 
   ![Mandelbrot](docs/screenshots/mandelbrot.png)
+- Concurrence (`Tools ▸ Concurrence…`), after Lighthouse Design's outliner and presenter: one
+  document seen three ways. **Outline** edits topics in place (Tab demotes a topic with its whole
+  subtree, Shift-Tab promotes it, Return splits one, click a triangle to collapse it); **Slide**
+  draws the current topic as a 4:3 slide — every top-level topic is a slide, its children are its
+  bullets; **Present** takes the whole Screen, a white slide on black with the menu, Dock and tiles
+  out of the way, driven by Space, the arrow keys or a click, and Escape (or advancing past the last
+  slide) ends the show. Save writes the outline as `Presentation-N.txt` in your home folder; the
+  outline itself lives in `state.json`.
+
+  ![Concurrence](docs/screenshots/concurrence.png)
 - Persistence of window, menu, Dock, Shelf, backdrop, tile visibility and scale settings.
 
 ## Known limitations
@@ -91,6 +101,8 @@ to `state.json.bad` and defaults are used (the Console says so).
 - Browser view only (no Icon or Listing view), no Preferences. Inspector images: PNG only.
 - Librarian: whole-word/phrase substring search over text and source files only (by extension), no
   index, no Boolean or proximity operators, no in-document highlighting.
+- Concurrence: one line per bullet (long ones are ellipsized, not wrapped), no styles, images, charts
+  or per-slide layouts, no undo, and no document files — Save exports the outline, there is no Open.
 - Shell: no copy and paste or mouse selection yet; colors are mapped onto the four grays; on Windows,
   Ctrl shortcuts go to the shell while it is the key window.
 - Without the backdrop there is no right-click main menu (nothing of ours to click on the desktop).

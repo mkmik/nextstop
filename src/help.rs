@@ -57,6 +57,9 @@ Shell, in the Tools menu, runs your login shell.
 Keys go straight to it, including Control
 combinations.
 
+New Shell\tstart a fresh login shell in the window
+Clear Buffer\tempty the screen and the scrollback
+
 Resize the window to change the character grid; the
 title follows what the shell reports. Scrollback is
 on the scroller down the left edge.
@@ -128,9 +131,10 @@ fn page(k: WinKind) -> (&'static str, &'static str) {
 fn height(body: &str) -> i32 { TITLE_H + PAD * 2 + body.lines().count() as i32 * LINE }
 
 impl App {
-    /// `Info ▸ Help…` from any application's menu: the page follows the window that was key.
+    /// `Info ▸ Help…` from any application's menu: the page is the one whose menu it came from, so
+    /// picking it twice keeps the page (the panel itself is nobody's application).
     pub fn show_help(&mut self) {
-        self.help = self.key.filter(|k| PAGES.iter().any(|(w, ..)| w == k)).unwrap_or(WinKind::FileViewer);
+        self.help = self.menu_owner().filter(|k| PAGES.iter().any(|(w, ..)| w == k)).unwrap_or(WinKind::FileViewer);
         let (title, body) = page(self.help);
         let (title, h) = (format!("{title} Help"), height(body));
         let win = self.win_mut(WinKind::Help);
@@ -167,8 +171,10 @@ mod tests {
         assert_eq!(a.win(WinKind::Help).title, "Shell Help");
         assert!(a.win(WinKind::Help).shown());
 
-        a.act(Act::Help); // the panel is key now, and has no page of its own
-        assert_eq!(a.help, WinKind::FileViewer);
+        a.act(Act::Help); // the panel is key now, but it is the Shell's, and so is the menu
+        assert_eq!(a.help, WinKind::Shell);
+        a.close_win(WinKind::Shell);
+        a.act(Act::Help);
         assert_eq!(a.win(WinKind::Help).title, "Workspace Help");
 
         let fonts = a.fonts.clone();

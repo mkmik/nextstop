@@ -1025,7 +1025,7 @@ impl App {
             if self.state.miniwindows_visible {
                 for w in &self.wins { if let Some(slot) = w.mini { v.push(sf(SurfaceId::Miniwin(w.kind), miniwindow_rect(slot, self.h), Level::Top, &w.title)); } }
             }
-            for m in &self.menus { let r = m.rect(); v.push(sf(SurfaceId::Menu(m.id), rect(r.x, r.y, r.w + 1, r.h), Level::Top, &m.title)); }
+            for m in &self.menus { let r = m.rect(); v.push(sf(SurfaceId::Menu(m.id), rect(r.x - 1, r.y - 1, r.w + 2, r.h + 1), Level::Top, &m.title)); }
         }
         if self.alert.is_some() { let r = self.win(WinKind::Alert).r; v.push(sf(SurfaceId::Win(WinKind::Alert), rect(r.x - 1, r.y - 1, r.w + 2, r.h + 2), Level::Top, "Alert")); }
         if self.dragging().is_some() { v.push(sf(SurfaceId::Ghost, rect(self.mouse.x - 24, self.mouse.y - 24, 48, 48), Level::Top, "")); }
@@ -1185,6 +1185,28 @@ mod tests {
         assert_eq!(app.menus.len(), 1);
         assert_eq!(app.menus[0].id, main);
         assert_eq!(app.menus[0].open_item, None);
+    }
+
+    /// The bezel is drawn one pixel outside the face, so the menu's own window has to reach that far or it is clipped away.
+    #[test]
+    fn menu_window_covers_the_dark_bezel_on_its_top_and_left() {
+        let mut app = App::test_app();
+        let main = app.menus[0].id;
+        let i = app.menu_index(main).unwrap();
+        app.menus[i].pos = pt(40, 30); // off the Screen corner, where the bezel would be clipped as it is in the 2.0 shots
+        let sf = app.surfaces().into_iter().find(|s| s.id == SurfaceId::Menu(main)).unwrap();
+        let icons = Icons::load();
+        let (w, h) = (sf.r.w as u32, sf.r.h as u32);
+        let mut px = vec![0u32; (w * h) as usize];
+        {
+            let mut p = Painter::new(Frame { w, h, px: &mut px }, 1.0, &app.fonts, &icons);
+            p.set_origin(sf.r.x, sf.r.y);
+            app.draw_surface(sf.id, &mut p);
+        }
+        let at = |x: i32, y: i32| px[y as usize * w as usize + x as usize] & 0xffffff;
+        assert_eq!((at(0, 0), at(1, 0), at(0, 1)), (DARK, DARK, DARK), "dark bezel row/column");
+        assert_eq!(at(1, 1), WHITE, "white highlight inside the bezel");
+        assert_eq!(at(sf.r.w - 1, 1), BLACK, "black shadow column on the right");
     }
 
     #[test]

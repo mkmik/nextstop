@@ -328,7 +328,7 @@ impl MenuInst {
         w.max(93)
     }
     pub fn height(&self) -> i32 { MENU_TITLE_H + self.items.len() as i32 * MENU_ITEM_H }
-    /// Face rectangle (the black shadow column lies just outside it, on the right).
+    /// Face rectangle; the dark bezel row/column lie just outside it on the top and left, the black shadow on the right.
     pub fn rect(&self) -> Rect { rect(self.pos.x, self.pos.y, self.w, self.height()) }
     pub fn title_rect(&self) -> Rect { rect(self.pos.x, self.pos.y, self.w, MENU_TITLE_H) }
     pub fn close_rect(&self) -> Option<Rect> { (self.kind == MenuKind::Torn).then(|| rect(self.pos.x + self.w - 17, self.pos.y + 3, 14, 14)) }
@@ -342,7 +342,11 @@ impl MenuInst {
 
     pub fn draw(&self, p: &mut Painter, hi: Option<usize>, close_pressed: bool, state: &dyn Fn(&ItemDef) -> (bool, bool)) {
         let r = self.rect();
-        // the only drop shadow is one black column on the right; the bottom ends with the last cell's black row (2.0 shots)
+        // 2.0 bezel: a dark row/column just outside the white highlight on the top and left, one black shadow column on
+        // the right, and no bottom shadow — the menu ends with the last cell's black row. The dark edge is what fills the
+        // gap between a parent menu's shadow and an attached submenu (ns20services.png, x=176).
+        p.hline(r.x - 1, r.y - 1, r.w + 1, DARK);
+        p.vline(r.x - 1, r.y - 1, r.h + 1, DARK);
         p.vline(r.right(), r.y, r.h, BLACK);
         // title: raised black cell (white highlight, dark shadow) + black shadow row
         let tr = self.title_rect();

@@ -19,7 +19,7 @@ pub struct WinState { pub x: i32, pub y: i32, pub w: i32, pub h: i32, pub open: 
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(default)]
-pub struct Windows { pub file_viewer: WinState, pub inspector: WinState, pub console: WinState, pub recycler: WinState, pub mandelbrot: WinState, pub shell: WinState }
+pub struct Windows { pub file_viewer: WinState, pub inspector: WinState, pub console: WinState, pub recycler: WinState, pub mandelbrot: WinState, pub improv: WinState, pub shell: WinState }
 impl Default for Windows {
     fn default() -> Self {
         Windows {
@@ -28,6 +28,7 @@ impl Default for Windows {
             console: WinState { x: 200, y: 500, w: 480, h: 240, open: false, path: String::new() },
             recycler: WinState { x: 300, y: 300, w: 320, h: 240, open: false, path: String::new() },
             mandelbrot: WinState { x: 200, y: 80, w: 520, h: 528, open: false, path: String::new() },
+            improv: WinState { x: 200, y: 120, w: 680, h: 348, open: false, path: String::new() },
             shell: WinState { x: 160, y: 120, w: 591, h: 374, open: false, path: String::new() },
         }
     }

@@ -86,7 +86,7 @@ pub fn tile_bevel(p: &mut Painter, r: Rect) {
 // ---- windows -------------------------------------------------------------------------------
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
-pub enum WinKind { FileViewer, Inspector, Console, Info, Recycler, Mandelbrot, Shell, Alert }
+pub enum WinKind { FileViewer, Inspector, Console, Info, Recycler, Mandelbrot, Improv, Shell, Alert }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum WinPart { Title, MiniBtn, CloseBtn, Resize(i8), Content }
@@ -254,7 +254,7 @@ impl Scroller {
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Act {
     None, Disabled, InfoPanel, Open, NewFolder, Duplicate, Destroy, EmptyRecycler, Copy, Paste, SelectAll, CheckDisks,
-    ViewBrowser, Scale1, Scale15, Scale2, ShowHidden, Backdrop, ShowDock, ShowMiniwindows, ShowRecycler, Inspector, ConsoleWin, Mandelbrot, ShellWin, FileViewerWin, RecyclerWin, ArrangeFront, Miniaturize, CloseWin, Hide, Quit,
+    ViewBrowser, Scale1, Scale15, Scale2, ShowHidden, Backdrop, ShowDock, ShowMiniwindows, ShowRecycler, Inspector, ConsoleWin, Mandelbrot, Improv, ShellWin, FileViewerWin, RecyclerWin, ArrangeFront, Miniaturize, CloseWin, Hide, Quit,
 }
 
 pub struct ItemDef { pub label: &'static str, pub key: Option<char>, pub sub: Option<&'static [ItemDef]>, pub act: Act }
@@ -274,7 +274,7 @@ pub static VIEW_MENU: [ItemDef; 9] = [
     item("Show Hidden Files", None, Act::ShowHidden), item("Show Dock", None, Act::ShowDock), item("Show Miniwindows", None, Act::ShowMiniwindows),
     item("Show Recycler Tile", None, Act::ShowRecycler), item("Screen Backdrop", None, Act::Backdrop),
 ];
-pub static TOOLS_MENU: [ItemDef; 6] = [item("Inspector…", Some('i'), Act::Inspector), item("Finder…", None, Act::Disabled), item("Processes…", None, Act::Disabled), item("Console…", None, Act::ConsoleWin), item("Shell…", Some('t'), Act::ShellWin), item("Mandelbrot…", None, Act::Mandelbrot)];
+pub static TOOLS_MENU: [ItemDef; 7] = [item("Inspector…", Some('i'), Act::Inspector), item("Finder…", None, Act::Disabled), item("Processes…", None, Act::Disabled), item("Console…", None, Act::ConsoleWin), item("Shell…", Some('t'), Act::ShellWin), item("Mandelbrot…", None, Act::Mandelbrot), item("Improv…", None, Act::Improv)];
 pub static WINDOWS_MENU: [ItemDef; 5] = [item("File Viewer", None, Act::FileViewerWin), item("Recycler", None, Act::RecyclerWin), item("Arrange in Front", None, Act::ArrangeFront), item("Miniaturize Window", Some('m'), Act::Miniaturize), item("Close Window", Some('w'), Act::CloseWin)];
 pub static SERVICES_MENU: [ItemDef; 1] = [item("No Services Available", None, Act::Disabled)];
 pub static MAIN_MENU: [ItemDef; 10] = [

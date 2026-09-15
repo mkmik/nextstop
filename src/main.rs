@@ -6,6 +6,7 @@ mod dock;
 mod fileviewer;
 mod geom;
 mod icons;
+mod improv;
 mod inspector;
 mod mandel;
 mod paint;

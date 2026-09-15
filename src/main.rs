@@ -6,6 +6,7 @@ mod demo;
 mod dock;
 mod fileviewer;
 mod geom;
+mod help;
 mod icons;
 mod improv;
 mod inspector;

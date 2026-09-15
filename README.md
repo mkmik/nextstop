@@ -60,11 +60,19 @@ to `state.json.bad` and defaults are used (the Console says so).
   windows; otherwise a miniaturized window just hides until reopened from the menus.
 - Menus: full Workspace menu tree, submenus, tear-off menus that persist, key equivalents
   (Cmd on macOS, Ctrl on Windows), right-click main menu on the background. The main menu belongs
-  to the key window's application, as on NeXTSTEP: while the Improv window is key the menu is
-  Improv's, and it goes back to Workspace's when another window takes over.
+  to the key window's application, as on NeXTSTEP, and every application brings its own: the
+  Shell's `New Shell` and `Clear Buffer`, the Librarian's `Find` and `Open Document`, Mandelbrot's
+  `Image` and `Dither`, Concurrence's `Document`, Improv's `Item`. Each also carries `Info`,
+  `Windows`, `Hide` and `Quit`, and the menu goes back to Workspace's when one of its windows
+  (File Viewer, Inspector, Console, Recycler) takes over. `Info ▸ Help…` opens a Help panel with
+  that application's page; the Info and Help panels belong to the application that opened them, so
+  the menu stays its own while one is up.
 - Shell (`Tools ▸ Shell…`, Cmd-T): a real terminal running your login shell, emulated by
   `alacritty_terminal` and drawn in the four grays with a block cursor and scrollback on our
   left-side scroller. Resize the window to change the grid; the window title follows the shell's.
+  Its own menu has `New Shell` (starts a fresh login shell in the window, which is also how you
+  come back after the old one exited) and `Clear Buffer` (screen and scrollback both go; the prompt
+  comes back with the next Return).
 - Digital Librarian (`Tools ▸ Librarian…`, Cmd-L), after the 1990 full-text search tool: the Shelf
   doubles as the bookshelf — click the folders to search (the home folder starts selected), type a
   word and press Return. Text documents are ranked by how often the word occurs, with the first

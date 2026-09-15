@@ -70,6 +70,36 @@ The owner then asked for the 2.0 (1990) aesthetics. Measured from toastytech's 2
   name, the first matching line and the hit count. Double-click opens the document with the host OS;
   Return in the field searches, the arrow keys walk the results.
 
+## Every application owns the main menu (v0.5.1)
+
+- On NeXTSTEP the main menu is the active application's, so each of ours now has one (`APP_MENUS`
+  in `chrome.rs` maps the key window to its menu): Shell, Librarian, Mandelbrot, Concurrence and
+  Improv. They share the shape `Info`, the application's own commands, `Windows`, `Hide`, `Quit` —
+  no `Tools`, since only Workspace launches things. The File Viewer, Inspector, Console and
+  Recycler are Workspace's own windows and keep the Workspace menu.
+- The commands are the ones each window already offers as a button, dispatched through the same
+  call (`Dither ▸ Knight's Tour` is the radio button, `Document ▸ Slide` is the Slide button), so
+  there is one implementation per command and the menu shows its state: the dithering in force and
+  the current Concurrence view are checked, `Open Document` is disabled until a hit is selected.
+  The Shell had no buttons, so it gets the two commands a terminal needs — `New Shell` (restart the
+  login shell in the window) and `Clear Buffer` (screen and scrollback, cursor home). NeXT's
+  Terminal opened a *new window* for `New Shell`; ours has one Shell window, so it restarts it
+  there. `Clear Buffer` does not send the shell anything: a Ctrl-L would have it redraw its prompt,
+  but the redraw scrolls a line straight back into the scrollback we just emptied, so the window
+  stays blank until the next Return.
+- No new key equivalents: the letters an application would claim (`Cmd-s`, `Cmd-f`) would shadow
+  Workspace's while that window is key, and the Shell already swallows everything but Cmd.
+- `Info ▸ Help…` was dimmed everywhere; it now opens a **Help panel** showing the page of the
+  application whose menu it came from (`src/help.rs`, one page per entry of `APP_MENUS` plus
+  Workspace). The pages are plain text, hard-wrapped where they are written, and the panel only
+  draws the lines: no RTF, no scroller, no index — NeXTSTEP 3.x drove Help from the Digital
+  Librarian, which is a document format and a search engine more than a panel. A unit test keeps
+  every page inside the panel and off the glyphs Liberation Sans lacks (a `▸` would draw as a
+  hollow box). `Preferences…` stays disabled: there is nothing to prefer.
+- Info, Help and alert **panels do not take the menu**: `make_key` remembers the last key window
+  that was an application's (`menu_key`), so opening an application's panel no longer hands the
+  main menu back to Workspace, as it did for the Info panel before.
+
 ## Extra application: Mandelbrot (v0.3.1)
 
 - Modelled on the 1.0 demo visible in the reference screenshot (white image panel, elapsed-time field, "Dithering" radio group with Standard PS / Knight's Tour / Ohlfs Mix / Error Diffusion, X/Y/Scale/Depth/Colors fields, one big button). There is no DSP, so it shows one image; the big button is Reset and a Save button writes `Mandelbrot-N.png` to the home folder.

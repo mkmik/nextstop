@@ -95,7 +95,7 @@ pub fn tile_bevel(p: &mut Painter, r: Rect) {
 // ---- windows -------------------------------------------------------------------------------
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
-pub enum WinKind { FileViewer, Inspector, Console, Info, Recycler, Mandelbrot, Improv, Shell, Concurrence, Librarian, Alert }
+pub enum WinKind { FileViewer, Inspector, Console, Info, Help, Recycler, Mandelbrot, Improv, Shell, Concurrence, Librarian, Alert }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum WinPart { Title, MiniBtn, CloseBtn, Resize(i8), Content }
@@ -264,9 +264,12 @@ impl Scroller {
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Act {
-    None, Disabled, InfoPanel, Open, NewFolder, Duplicate, Destroy, EmptyRecycler, Copy, Paste, SelectAll, CheckDisks,
+    None, Disabled, InfoPanel, Help, Open, NewFolder, Duplicate, Destroy, EmptyRecycler, Copy, Paste, SelectAll, CheckDisks,
     ViewBrowser, Scale1, Scale15, Scale2, ShowHidden, Backdrop, ShowDock, ShowMiniwindows, ShowRecycler, Inspector, ConsoleWin, Mandelbrot, Improv, ShellWin, Concurrence, LibrarianWin, FileViewerWin, RecyclerWin, ArrangeFront, Miniaturize, CloseWin, Hide, Quit,
     IvNewRow, IvNewCol, IvDelRow, IvDelCol,
+    ShNew, ShClear, LbFind, LbOpen,
+    MbDither(usize), MbDeeper, MbShallower, MbReset, MbSave,
+    CoOutline, CoSlide, CoPresent, CoSave,
 }
 
 pub struct ItemDef { pub label: &'static str, pub key: Option<char>, pub sub: Option<&'static [ItemDef]>, pub act: Act }
@@ -274,7 +277,7 @@ const fn item(label: &'static str, key: Option<char>, act: Act) -> ItemDef { Ite
 const fn sub(label: &'static str, sub: &'static [ItemDef]) -> ItemDef { ItemDef { label, key: None, sub: Some(sub), act: Act::None } }
 
 pub static SCALE_MENU: [ItemDef; 3] = [item("1×", None, Act::Scale1), item("1.5×", None, Act::Scale15), item("2×", None, Act::Scale2)];
-pub static INFO_MENU: [ItemDef; 3] = [item("Info Panel…", None, Act::InfoPanel), item("Preferences…", None, Act::Disabled), item("Help…", None, Act::Disabled)];
+pub static INFO_MENU: [ItemDef; 3] = [item("Info Panel…", None, Act::InfoPanel), item("Preferences…", None, Act::Disabled), item("Help…", None, Act::Help)];
 pub static FILE_MENU: [ItemDef; 7] = [
     item("Open", Some('o'), Act::Open), item("Open as Folder", Some('O'), Act::Disabled), item("New Folder", Some('n'), Act::NewFolder),
     item("Duplicate", Some('d'), Act::Duplicate), item("Compress", None, Act::Disabled), item("Destroy", Some('r'), Act::Destroy), item("Empty Recycler", None, Act::EmptyRecycler),
@@ -293,6 +296,34 @@ pub static TOOLS_MENU: [ItemDef; 9] = [item("Inspector…", Some('i'), Act::Insp
 pub static ITEM_MENU: [ItemDef; 4] = [item("New Row", None, Act::IvNewRow), item("New Column", None, Act::IvNewCol), item("Delete Row", None, Act::IvDelRow), item("Delete Column", None, Act::IvDelCol)];
 pub static IMPROV_MENU: [ItemDef; 5] = [sub("Info", &INFO_MENU), sub("Item", &ITEM_MENU), sub("Windows", &WINDOWS_MENU), item("Hide", Some('h'), Act::Hide), item("Quit", Some('q'), Act::Quit)];
 
+/// The other applications' menus, in the same shape: Info, the commands the window itself offers,
+/// Windows, Hide, Quit. The Shell's and the Librarian's are few enough to sit at the root.
+pub static SHELL_MENU: [ItemDef; 6] = [
+    sub("Info", &INFO_MENU), item("New Shell", None, Act::ShNew), item("Clear Buffer", None, Act::ShClear),
+    sub("Windows", &WINDOWS_MENU), item("Hide", Some('h'), Act::Hide), item("Quit", Some('q'), Act::Quit),
+];
+pub static LIBRARIAN_MENU: [ItemDef; 6] = [
+    sub("Info", &INFO_MENU), item("Find", None, Act::LbFind), item("Open Document", None, Act::LbOpen),
+    sub("Windows", &WINDOWS_MENU), item("Hide", Some('h'), Act::Hide), item("Quit", Some('q'), Act::Quit),
+];
+pub static IMAGE_MENU: [ItemDef; 4] = [item("Deeper", None, Act::MbDeeper), item("Shallower", None, Act::MbShallower), item("Reset", None, Act::MbReset), item("Save", None, Act::MbSave)];
+pub static DITHER_MENU: [ItemDef; 4] = [item("Standard PS", None, Act::MbDither(0)), item("Knight's Tour", None, Act::MbDither(1)), item("Ohlfs Mix", None, Act::MbDither(2)), item("Error Diffusion", None, Act::MbDither(3))];
+pub static MANDEL_MENU: [ItemDef; 6] = [
+    sub("Info", &INFO_MENU), sub("Image", &IMAGE_MENU), sub("Dither", &DITHER_MENU),
+    sub("Windows", &WINDOWS_MENU), item("Hide", Some('h'), Act::Hide), item("Quit", Some('q'), Act::Quit),
+];
+pub static DOCUMENT_MENU: [ItemDef; 4] = [item("Outline", None, Act::CoOutline), item("Slide", None, Act::CoSlide), item("Present", None, Act::CoPresent), item("Save", None, Act::CoSave)];
+pub static CONCUR_MENU: [ItemDef; 5] = [sub("Info", &INFO_MENU), sub("Document", &DOCUMENT_MENU), sub("Windows", &WINDOWS_MENU), item("Hide", Some('h'), Act::Hide), item("Quit", Some('q'), Act::Quit)];
+
+/// Which application owns the main menu while its window is the key one; anything else is Workspace's.
+pub static APP_MENUS: [(WinKind, &str, &[ItemDef]); 5] = [
+    (WinKind::Improv, "Improv", &IMPROV_MENU),
+    (WinKind::Shell, "Shell", &SHELL_MENU),
+    (WinKind::Librarian, "Librarian", &LIBRARIAN_MENU),
+    (WinKind::Mandelbrot, "Mandelbrot", &MANDEL_MENU),
+    (WinKind::Concurrence, "Concurrence", &CONCUR_MENU),
+];
+
 pub static WINDOWS_MENU: [ItemDef; 5] = [item("File Viewer", None, Act::FileViewerWin), item("Recycler", None, Act::RecyclerWin), item("Arrange in Front", None, Act::ArrangeFront), item("Miniaturize Window", Some('m'), Act::Miniaturize), item("Close Window", Some('w'), Act::CloseWin)];
 pub static SERVICES_MENU: [ItemDef; 1] = [item("No Services Available", None, Act::Disabled)];
 pub static MAIN_MENU: [ItemDef; 10] = [
@@ -303,7 +334,7 @@ pub static MAIN_MENU: [ItemDef; 10] = [
 
 /// A torn-off menu is remembered by its path, which may start in any application's menu.
 pub fn resolve_path(path: &[String]) -> Option<&'static [ItemDef]> {
-    [&MAIN_MENU[..], &IMPROV_MENU[..]].into_iter().find_map(|root| {
+    std::iter::once(&MAIN_MENU[..]).chain(APP_MENUS.iter().map(|&(_, _, items)| items)).find_map(|root| {
         let mut items = root;
         for label in path { items = items.iter().find(|i| i.label == label)?.sub?; }
         Some(items)

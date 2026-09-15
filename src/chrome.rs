@@ -67,6 +67,15 @@ pub fn dimple(p: &mut Painter, x: i32, y: i32) {
     }
 }
 
+/// Sunken white text field with its left-aligned, ellipsized contents.
+pub fn field(p: &mut Painter, r: Rect, text: &str) {
+    p.fill(r, WHITE);
+    p.fill(rect(r.x, r.y, r.w, 2), DARK); p.fill(rect(r.x, r.y, 2, r.h), DARK);
+    p.hline(r.x, r.bottom() - 2, r.w, LIGHT); p.hline(r.x, r.bottom() - 1, r.w, WHITE);
+    p.vline(r.right() - 2, r.y, r.h, LIGHT); p.vline(r.right() - 1, r.y, r.h, WHITE);
+    p.text_in(FontId::Regular, 12, rect(r.x + 5, r.y, r.w - 8, r.h), Align::Left, &p.ellipsize(FontId::Regular, 12, text, r.w - 8), BLACK);
+}
+
 /// Raised push button with centred label; `default` adds the return glyph.
 pub fn button(p: &mut Painter, r: Rect, label: &str, pressed: bool, default: bool) {
     if pressed { p.pressed(r) } else { p.raised(r) }
@@ -86,7 +95,7 @@ pub fn tile_bevel(p: &mut Painter, r: Rect) {
 // ---- windows -------------------------------------------------------------------------------
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
-pub enum WinKind { FileViewer, Inspector, Console, Info, Recycler, Mandelbrot, Improv, Shell, Concurrence, Alert }
+pub enum WinKind { FileViewer, Inspector, Console, Info, Recycler, Mandelbrot, Improv, Shell, Concurrence, Librarian, Alert }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum WinPart { Title, MiniBtn, CloseBtn, Resize(i8), Content }
@@ -256,7 +265,7 @@ impl Scroller {
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Act {
     None, Disabled, InfoPanel, Open, NewFolder, Duplicate, Destroy, EmptyRecycler, Copy, Paste, SelectAll, CheckDisks,
-    ViewBrowser, Scale1, Scale15, Scale2, ShowHidden, Backdrop, ShowDock, ShowMiniwindows, ShowRecycler, Inspector, ConsoleWin, Mandelbrot, Improv, ShellWin, Concurrence, FileViewerWin, RecyclerWin, ArrangeFront, Miniaturize, CloseWin, Hide, Quit,
+    ViewBrowser, Scale1, Scale15, Scale2, ShowHidden, Backdrop, ShowDock, ShowMiniwindows, ShowRecycler, Inspector, ConsoleWin, Mandelbrot, Improv, ShellWin, Concurrence, LibrarianWin, FileViewerWin, RecyclerWin, ArrangeFront, Miniaturize, CloseWin, Hide, Quit,
 }
 
 pub struct ItemDef { pub label: &'static str, pub key: Option<char>, pub sub: Option<&'static [ItemDef]>, pub act: Act }
@@ -276,7 +285,7 @@ pub static VIEW_MENU: [ItemDef; 9] = [
     item("Show Hidden Files", None, Act::ShowHidden), item("Show Dock", None, Act::ShowDock), item("Show Miniwindows", None, Act::ShowMiniwindows),
     item("Show Recycler Tile", None, Act::ShowRecycler), item("Screen Backdrop", None, Act::Backdrop),
 ];
-pub static TOOLS_MENU: [ItemDef; 8] = [item("Inspector…", Some('i'), Act::Inspector), item("Finder…", None, Act::Disabled), item("Processes…", None, Act::Disabled), item("Console…", None, Act::ConsoleWin), item("Shell…", Some('t'), Act::ShellWin), item("Concurrence…", None, Act::Concurrence), item("Mandelbrot…", None, Act::Mandelbrot), item("Improv…", None, Act::Improv)];
+pub static TOOLS_MENU: [ItemDef; 9] = [item("Inspector…", Some('i'), Act::Inspector), item("Finder…", None, Act::Disabled), item("Librarian…", Some('l'), Act::LibrarianWin), item("Processes…", None, Act::Disabled), item("Console…", None, Act::ConsoleWin), item("Shell…", Some('t'), Act::ShellWin), item("Concurrence…", None, Act::Concurrence), item("Mandelbrot…", None, Act::Mandelbrot), item("Improv…", None, Act::Improv)];
 pub static WINDOWS_MENU: [ItemDef; 5] = [item("File Viewer", None, Act::FileViewerWin), item("Recycler", None, Act::RecyclerWin), item("Arrange in Front", None, Act::ArrangeFront), item("Miniaturize Window", Some('m'), Act::Miniaturize), item("Close Window", Some('w'), Act::CloseWin)];
 pub static SERVICES_MENU: [ItemDef; 1] = [item("No Services Available", None, Act::Disabled)];
 pub static MAIN_MENU: [ItemDef; 10] = [

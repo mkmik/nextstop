@@ -9,6 +9,7 @@ mod geom;
 mod icons;
 mod improv;
 mod inspector;
+mod librarian;
 mod mandel;
 mod paint;
 mod shell;

@@ -7,6 +7,7 @@ use crate::fileviewer::FileViewer;
 use crate::geom::{pt, rect, Pt, Rect};
 use crate::icons;
 use crate::inspector::Inspector;
+use crate::concur::{CBtn, Concur};
 use crate::mandel::{MBtn, Mandel};
 use crate::shell::Shell;
 use crate::paint::*;
@@ -52,7 +53,7 @@ pub enum Pending { Nothing, Trash(Vec<String>), Destroy(Vec<String>), EmptyTrash
 pub struct Alert { pub message: String, pub detail: String, pub buttons: Vec<String>, pub pending: Pending, pub prev_key: Option<WinKind> }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum ScrollId { Col(u64), Browser, Console, InspText, Recycler, Shell }
+pub enum ScrollId { Col(u64), Browser, Console, InspText, Recycler, Shell, Outline }
 
 /// Every press-and-release control on the Screen (§9.2).
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -60,7 +61,7 @@ pub enum ScrollId { Col(u64), Browser, Console, InspText, Recycler, Shell }
 pub enum Btn {
     WinMini(WinKind), WinClose(WinKind), MenuClose(u64), MenuItem(u64, usize), AlertBtn(usize),
     Tile(TileId), Miniwin(WinKind), ScrollArrow(ScrollId, i8), Shelf(usize), PathItem(usize),
-    InspPopup, InspRow(usize), InspCompute, RecBtn, Cell(usize, usize), Mandel(MBtn),
+    InspPopup, InspRow(usize), InspCompute, RecBtn, Cell(usize, usize), Mandel(MBtn), Concur(CBtn),
 }
 
 pub enum Capture {
@@ -102,7 +103,7 @@ pub struct App {
     menu_seq: u64,
     pub menus: Vec<MenuInst>,
     pub alert: Option<Alert>,
-    pub fv: FileViewer, pub insp: Inspector, pub dock: Dock, pub rec: RecWin, pub mandel: Mandel, pub shell: Shell,
+    pub fv: FileViewer, pub insp: Inspector, pub dock: Dock, pub rec: RecWin, pub mandel: Mandel, pub shell: Shell, pub concur: Concur,
     pub console: Vec<String>, pub console_scroll: i32, console_stick: bool,
     pub capture: Option<Capture>,
     pub mouse: Pt,
@@ -112,7 +113,7 @@ pub struct App {
     pub now: Instant,
 }
 
-const KINDS: [WinKind; 8] = [WinKind::FileViewer, WinKind::Inspector, WinKind::Console, WinKind::Info, WinKind::Recycler, WinKind::Mandelbrot, WinKind::Shell, WinKind::Alert];
+const KINDS: [WinKind; 9] = [WinKind::FileViewer, WinKind::Inspector, WinKind::Console, WinKind::Info, WinKind::Recycler, WinKind::Mandelbrot, WinKind::Shell, WinKind::Concurrence, WinKind::Alert];
 pub fn wi(k: WinKind) -> usize { KINDS.iter().position(|x| *x == k).unwrap() }
 
 impl App {
@@ -155,6 +156,7 @@ impl App {
             Win::new(WinKind::Recycler, wr(&st.windows.recycler), "Recycler", "recycler-empty"),
             Win::new(WinKind::Mandelbrot, rect(st.windows.mandelbrot.x, st.windows.mandelbrot.y, crate::mandel::WIN_W, crate::mandel::WIN_H), "Mandelbrot", "file-image"),
             Win::new(WinKind::Shell, wr(&st.windows.shell), "Shell", "miniwindow"),
+            Win::new(WinKind::Concurrence, wr(&st.windows.concurrence), "Concurrence", "file-text"),
             Win::new(WinKind::Alert, rect(0, 0, 380, 176), "", "alert"),
         ];
         wins[wi(WinKind::FileViewer)].min_w = 480; wins[wi(WinKind::FileViewer)].min_h = 320;
@@ -164,13 +166,15 @@ impl App {
         wins[wi(WinKind::Recycler)].min_w = 200; wins[wi(WinKind::Recycler)].min_h = 120;
         wins[wi(WinKind::Mandelbrot)].resizable = false;
         wins[wi(WinKind::Shell)].min_w = 20 * crate::shell::CELL_W + SCROLL_W + 2 * crate::shell::PAD; wins[wi(WinKind::Shell)].min_h = 5 * crate::shell::CELL_H + 2 * crate::shell::PAD + TITLE_H + RESIZE_H;
+        wins[wi(WinKind::Concurrence)].min_w = 360; wins[wi(WinKind::Concurrence)].min_h = 220;
         let a = &mut wins[wi(WinKind::Alert)];
         a.resizable = false; a.mini_btn = false; a.close_btn = false;
         let zoom = cfg.scale_override.filter(|z| (0.5..=4.0).contains(z)).unwrap_or(st.scale);
+        let concur = Concur::from_lines(&st.concurrence);
         let mut app = App {
             w: st.os_window.w, h: st.os_window.h, zoom, quit: false, redraw: true, minimize: false, cfg, post, fonts,
             home: home.clone(), roots, is_win, state: st, save_at: None, wins, key: None, activations: vec![], zc: 0, menu_seq: 0, menus: vec![], alert: None,
-            fv: FileViewer::default(), insp: Inspector::default(), dock: Dock::default(), rec: RecWin::default(), mandel: Mandel::default(), shell: Shell::default(),
+            fv: FileViewer::default(), insp: Inspector::default(), dock: Dock::default(), rec: RecWin::default(), mandel: Mandel::default(), shell: Shell::default(), concur,
             console, console_scroll: 0, console_stick: true, capture: None, mouse: pt(0, 0), focused: true,
             refresh_at: Instant::now() + Duration::from_secs(5), clipboard: vec![], now: Instant::now(),
         };
@@ -194,6 +198,7 @@ impl App {
         if self.state.windows.recycler.open { self.show_win(WinKind::Recycler); }
         if self.state.windows.mandelbrot.open { self.show_win(WinKind::Mandelbrot); }
         if self.state.windows.shell.open { self.show_win(WinKind::Shell); }
+        if self.state.windows.concurrence.open { self.show_win(WinKind::Concurrence); }
         if self.state.windows.file_viewer.open { self.activate_win(WinKind::FileViewer); }
         self.log("ReWorkspace started".into());
         let path = self.state.windows.file_viewer.path.clone();
@@ -300,7 +305,7 @@ impl App {
     pub fn take_activations(&mut self) -> Vec<WinKind> { std::mem::take(&mut self.activations) }
     fn state_win(&mut self, k: WinKind) -> Option<&mut state::WinState> {
         let w = &mut self.state.windows;
-        match k { WinKind::FileViewer => Some(&mut w.file_viewer), WinKind::Inspector => Some(&mut w.inspector), WinKind::Console => Some(&mut w.console), WinKind::Recycler => Some(&mut w.recycler), WinKind::Mandelbrot => Some(&mut w.mandelbrot), WinKind::Shell => Some(&mut w.shell), _ => None }
+        match k { WinKind::FileViewer => Some(&mut w.file_viewer), WinKind::Inspector => Some(&mut w.inspector), WinKind::Console => Some(&mut w.console), WinKind::Recycler => Some(&mut w.recycler), WinKind::Mandelbrot => Some(&mut w.mandelbrot), WinKind::Shell => Some(&mut w.shell), WinKind::Concurrence => Some(&mut w.concurrence), _ => None }
     }
     fn sync_win_state(&mut self, k: WinKind) {
         let (r, open) = { let w = self.win(k); (w.r, w.visible) };
@@ -319,11 +324,13 @@ impl App {
         if k == WinKind::Inspector { self.insp_refresh(); }
         if k == WinKind::Mandelbrot { self.mandel_ensure(); }
         if k == WinKind::Shell { self.shell_start(); }
+        if k == WinKind::Concurrence { self.c_reveal(); }
         self.redraw = true;
     }
     pub fn close_win(&mut self, k: WinKind) {
         if k == WinKind::Alert { return; }
         if k == WinKind::Shell { self.shell_stop(); }
+        if k == WinKind::Concurrence { self.concur_show(false); }
         self.win_mut(k).visible = false;
         self.win_mut(k).mini = None;
         self.sync_win_state(k);
@@ -629,6 +636,7 @@ impl App {
             Act::ConsoleWin => self.show_win(WinKind::Console),
             Act::Mandelbrot => self.show_win(WinKind::Mandelbrot),
             Act::ShellWin => self.show_win(WinKind::Shell),
+            Act::Concurrence => self.show_win(WinKind::Concurrence),
             Act::FileViewerWin => self.show_win(WinKind::FileViewer),
             Act::ArrangeFront => {
                 let mut order: Vec<WinKind> = self.wins.iter().filter(|w| w.shown() && w.kind != WinKind::Alert).map(|w| w.kind).collect();
@@ -717,6 +725,7 @@ impl App {
             WinKind::Recycler => self.rec_mouse_down(p),
             WinKind::Mandelbrot => self.mandel_mouse_down(p),
             WinKind::Shell => self.shell_mouse_down(p),
+            WinKind::Concurrence => self.concur_mouse_down(p),
             _ => {}
         }
     }
@@ -742,6 +751,7 @@ impl App {
             ScrollId::InspText => self.insp.scroll,
             ScrollId::Recycler => self.rec.scroll,
             ScrollId::Shell => self.shell_scroller().pos,
+            ScrollId::Outline => self.c_scroller().pos,
         }
     }
     pub fn set_scroll(&mut self, id: ScrollId, v: i32) {
@@ -754,6 +764,7 @@ impl App {
             ScrollId::InspText => self.insp.scroll = v,
             ScrollId::Recycler => self.rec.scroll = v,
             ScrollId::Shell => self.shell_set_scroll(v),
+            ScrollId::Outline => self.concur.scroll = v,
         }
         self.redraw = true;
     }
@@ -765,6 +776,7 @@ impl App {
             ScrollId::InspText => self.insp_text_scroller(),
             ScrollId::Recycler => Some(self.rec_scroller()),
             ScrollId::Shell => Some(self.shell_scroller()),
+            ScrollId::Outline => Some(self.c_scroller()),
         }
     }
 
@@ -859,6 +871,7 @@ impl App {
                 WinKind::Recycler => self.rec_btn_hit(p),
                 WinKind::Mandelbrot => self.mandel_btn_hit(p),
                 WinKind::Shell => self.shell_btn_hit(p),
+                WinKind::Concurrence => self.concur_btn_hit(p),
                 _ => None,
             },
             _ => None,
@@ -892,6 +905,7 @@ impl App {
             Btn::InspCompute => self.insp_compute(),
             Btn::RecBtn => self.rec_button(),
             Btn::Mandel(b) => self.mandel_btn(b),
+            Btn::Concur(b) => self.concur_btn(b),
             Btn::Cell(..) => {}
         }
     }
@@ -913,6 +927,7 @@ impl App {
             WinKind::Inspector => self.scroll_by(ScrollId::InspText, dy),
             WinKind::Recycler => self.scroll_by(ScrollId::Recycler, dy),
             WinKind::Shell => self.shell_wheel(dy),
+            WinKind::Concurrence => self.scroll_by(ScrollId::Outline, dy),
             _ => {}
         }
     }
@@ -934,6 +949,7 @@ impl App {
             }
             return;
         }
+        if self.key == Some(WinKind::Concurrence) && self.win(WinKind::Concurrence).shown() { self.concur_key(k, mods); return; }
         if self.key == Some(WinKind::FileViewer) && self.win(WinKind::FileViewer).shown() { self.fv_key(k, mods); }
     }
 
@@ -969,17 +985,19 @@ impl App {
         if self.state.backdrop { v.push(sf(SurfaceId::Backdrop, rect(0, 0, self.w, self.h), Level::Bottom, "ReWorkspace")); }
         let mut order: Vec<&Win> = self.wins.iter().filter(|w| w.shown() && w.kind != WinKind::Alert).collect();
         order.sort_by_key(|w| w.z);
-        for w in order { v.push(sf(SurfaceId::Win(w.kind), rect(w.r.x - 1, w.r.y - 1, w.r.w + 2, w.r.h + 2), Level::Normal, &w.title)); }
-        if self.state.dock_visible {
-            let n = 1 + self.state.dock.len().min(12) as i32;
-            v.push(sf(SurfaceId::Dock, rect(self.w - 67, 0, 64, 64 * n), Level::Top, "Dock"));
+        for w in order { let b = w.chrome as i32; v.push(sf(SurfaceId::Win(w.kind), rect(w.r.x - b, w.r.y - b, w.r.w + 2 * b, w.r.h + 2 * b), Level::Normal, &w.title)); }
+        if self.concur.show.is_none() { // a Concurrence show owns the whole Screen
+            if self.state.dock_visible {
+                let n = 1 + self.state.dock.len().min(12) as i32;
+                v.push(sf(SurfaceId::Dock, rect(self.w - 67, 0, 64, 64 * n), Level::Top, "Dock"));
+            }
+            if self.state.recycler_visible { v.push(sf(SurfaceId::Recycler, self.tile_rect(TileId::Recycler), Level::Top, "Recycler")); }
+            v.push(sf(SurfaceId::AppTile, rect(0, self.h - 64, 64, 64), Level::Top, "Workspace"));
+            if self.state.miniwindows_visible {
+                for w in &self.wins { if let Some(slot) = w.mini { v.push(sf(SurfaceId::Miniwin(w.kind), miniwindow_rect(slot, self.h), Level::Top, &w.title)); } }
+            }
+            for m in &self.menus { let r = m.rect(); v.push(sf(SurfaceId::Menu(m.id), rect(r.x, r.y, r.w + 1, r.h), Level::Top, &m.title)); }
         }
-        if self.state.recycler_visible { v.push(sf(SurfaceId::Recycler, self.tile_rect(TileId::Recycler), Level::Top, "Recycler")); }
-        v.push(sf(SurfaceId::AppTile, rect(0, self.h - 64, 64, 64), Level::Top, "Workspace"));
-        if self.state.miniwindows_visible {
-            for w in &self.wins { if let Some(slot) = w.mini { v.push(sf(SurfaceId::Miniwin(w.kind), miniwindow_rect(slot, self.h), Level::Top, &w.title)); } }
-        }
-        for m in &self.menus { let r = m.rect(); v.push(sf(SurfaceId::Menu(m.id), rect(r.x, r.y, r.w + 1, r.h), Level::Top, &m.title)); }
         if self.alert.is_some() { let r = self.win(WinKind::Alert).r; v.push(sf(SurfaceId::Win(WinKind::Alert), rect(r.x - 1, r.y - 1, r.w + 2, r.h + 2), Level::Top, "Alert")); }
         if self.dragging().is_some() { v.push(sf(SurfaceId::Ghost, rect(self.mouse.x - 24, self.mouse.y - 24, 48, 48), Level::Top, "")); }
         v
@@ -1037,6 +1055,7 @@ impl App {
             WinKind::Recycler => self.rec_draw(p, c),
             WinKind::Mandelbrot => self.mandel_draw(p, c),
             WinKind::Shell => self.shell_draw(p, c),
+            WinKind::Concurrence => self.concur_draw(p, c),
             WinKind::Alert => self.alert_draw(p, c),
         }
         p.pop_clip();

@@ -1,6 +1,7 @@
 mod app;
 mod backend;
 mod chrome;
+mod concur;
 mod demo;
 mod dock;
 mod fileviewer;

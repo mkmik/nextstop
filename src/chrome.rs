@@ -1,6 +1,7 @@
 //! Window chrome, scrollers, menus, glyphs — geometry taken from NeXTSTEP 1.0 screenshots (see docs/DECISIONS.md).
 use crate::concur::CBtn;
 use crate::geom::{rect, Pt, Rect};
+use crate::mandel::MBtn;
 use crate::paint::*;
 
 pub const TITLE_H: i32 = 22;   // highlight row + 19 fill rows + dark row + black row
@@ -268,6 +269,7 @@ pub enum Act {
     None, Disabled, InfoPanel, Help, Open, NewFolder, Duplicate, Destroy, EmptyRecycler, Copy, Paste, SelectAll, CheckDisks,
     ViewBrowser, Scale1, Scale15, Scale2, ShowHidden, Backdrop, ShowDock, ShowMiniwindows, ShowRecycler, Inspector, ConsoleWin, Mandelbrot, Improv, ShellWin, Concurrence, LibrarianWin, FileViewerWin, RecyclerWin, ArrangeFront, Miniaturize, CloseWin, Hide, Quit,
     IvNewRow, IvNewCol, IvDelRow, IvDelCol, Co(CBtn), CoMove(bool),
+    ShNew, ShClear, LbFind, LbOpen, Mb(MBtn),
 }
 
 pub struct ItemDef { pub label: &'static str, pub key: Option<char>, pub sub: Option<&'static [ItemDef]>, pub act: Act }
@@ -305,6 +307,35 @@ pub static TOPICS_MENU: [ItemDef; 1] = [sub("Move", &MOVE_MENU)];
 pub static CVIEW_MENU: [ItemDef; 3] = [item("Outline", None, Act::Co(CBtn::Outline)), item("Slide", None, Act::Co(CBtn::Slide)), item("Present", Some('p'), Act::Co(CBtn::Present))];
 pub static CONCUR_MENU: [ItemDef; 7] = [sub("Info", &INFO_MENU), sub("Topics", &TOPICS_MENU), sub("View", &CVIEW_MENU), item("Save", Some('s'), Act::Co(CBtn::Save)), sub("Windows", &WINDOWS_MENU), item("Hide", Some('h'), Act::Hide), item("Quit", Some('q'), Act::Quit)];
 
+/// The rest of the applications, in the same shape: Info, what the window itself offers, Windows,
+/// Hide, Quit — no Tools, since only Workspace launches things. The commands are the ones the
+/// window already has as buttons, through the same call, so the menu can show their state; the
+/// Shell had none, and gets the two a terminal needs instead.
+pub static SHELL_MENU: [ItemDef; 6] = [
+    sub("Info", &INFO_MENU), item("New Shell", Some('n'), Act::ShNew), item("Clear Buffer", Some('k'), Act::ShClear),
+    sub("Windows", &WINDOWS_MENU), item("Hide", Some('h'), Act::Hide), item("Quit", Some('q'), Act::Quit),
+];
+pub static LIBRARIAN_MENU: [ItemDef; 6] = [
+    sub("Info", &INFO_MENU), item("Find", Some('f'), Act::LbFind), item("Open Document", Some('o'), Act::LbOpen),
+    sub("Windows", &WINDOWS_MENU), item("Hide", Some('h'), Act::Hide), item("Quit", Some('q'), Act::Quit),
+];
+pub static IMAGE_MENU: [ItemDef; 4] = [item("Deeper", None, Act::Mb(MBtn::DepthUp)), item("Shallower", None, Act::Mb(MBtn::DepthDown)), item("Reset", None, Act::Mb(MBtn::Reset)), item("Save", Some('s'), Act::Mb(MBtn::Save))];
+pub static DITHER_MENU: [ItemDef; 4] = [item("Standard PS", None, Act::Mb(MBtn::Radio(0))), item("Knight's Tour", None, Act::Mb(MBtn::Radio(1))), item("Ohlfs Mix", None, Act::Mb(MBtn::Radio(2))), item("Error Diffusion", None, Act::Mb(MBtn::Radio(3)))];
+pub static MANDEL_MENU: [ItemDef; 6] = [
+    sub("Info", &INFO_MENU), sub("Image", &IMAGE_MENU), sub("Dither", &DITHER_MENU),
+    sub("Windows", &WINDOWS_MENU), item("Hide", Some('h'), Act::Hide), item("Quit", Some('q'), Act::Quit),
+];
+
+/// Which application owns the main menu while its window is the key one; any other window is
+/// Workspace's. A new application window belongs here, or it borrows the Workspace menu.
+pub static APP_MENUS: [(WinKind, &str, &[ItemDef]); 5] = [
+    (WinKind::Improv, "Improv", &IMPROV_MENU),
+    (WinKind::Concurrence, "Concurrence", &CONCUR_MENU),
+    (WinKind::Shell, "Shell", &SHELL_MENU),
+    (WinKind::Librarian, "Librarian", &LIBRARIAN_MENU),
+    (WinKind::Mandelbrot, "Mandelbrot", &MANDEL_MENU),
+];
+
 pub static WINDOWS_MENU: [ItemDef; 5] = [item("File Viewer", None, Act::FileViewerWin), item("Recycler", None, Act::RecyclerWin), item("Arrange in Front", None, Act::ArrangeFront), item("Miniaturize Window", Some('m'), Act::Miniaturize), item("Close Window", Some('w'), Act::CloseWin)];
 pub static SERVICES_MENU: [ItemDef; 1] = [item("No Services Available", None, Act::Disabled)];
 pub static MAIN_MENU: [ItemDef; 10] = [
@@ -313,13 +344,21 @@ pub static MAIN_MENU: [ItemDef; 10] = [
     item("Hide", Some('h'), Act::Hide), item("Quit", Some('q'), Act::Quit),
 ];
 
-/// A torn-off menu is remembered by its path, which may start in any application's menu.
+fn walk(mut items: &'static [ItemDef], labels: &[String]) -> Option<&'static [ItemDef]> {
+    for label in labels { items = items.iter().find(|i| i.label == *label)?.sub?; }
+    Some(items)
+}
+fn roots() -> impl Iterator<Item = (&'static str, &'static [ItemDef])> {
+    std::iter::once(("Workspace", &MAIN_MENU[..])).chain(APP_MENUS.iter().map(|&(_, title, items)| (title, items)))
+}
+/// A torn-off menu is remembered by its path, which starts with the application it came from —
+/// Concurrence's View and Workspace's View are different menus. State written before the
+/// applications had menus of their own has a bare path, so that is looked up the old way.
 pub fn resolve_path(path: &[String]) -> Option<&'static [ItemDef]> {
-    [&MAIN_MENU[..], &IMPROV_MENU[..], &CONCUR_MENU[..]].into_iter().find_map(|root| {
-        let mut items = root;
-        for label in path { items = items.iter().find(|i| i.label == label)?.sub?; }
-        Some(items)
-    })
+    match roots().find(|(title, _)| Some(*title) == path.first().map(String::as_str)) {
+        Some((_, root)) => walk(root, &path[1..]),
+        None => roots().find_map(|(_, root)| walk(root, path)),
+    }
 }
 pub fn find_key(items: &'static [ItemDef], c: char) -> Option<&'static ItemDef> {
     items.iter().find_map(|i| if let Some(s) = i.sub { find_key(s, c) } else if i.key == Some(c) { Some(i) } else { None })

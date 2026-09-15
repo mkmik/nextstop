@@ -60,24 +60,33 @@ to `state.json.bad` and defaults are used (the Console says so).
   windows; otherwise a miniaturized window just hides until reopened from the menus.
 - Menus: full Workspace menu tree, submenus, tear-off menus that persist, key equivalents
   (Cmd on macOS, Ctrl on Windows), right-click main menu on the background. The main menu belongs
-  to the key window's application, as on NeXTSTEP: while the Improv or Concurrence window is key
-  the menu is that application's, and it goes back to Workspace's when another window takes over.
-- Help: `Info ▸ Help…` (Cmd-?) opens a panel with a page for whichever window is key — the
-  Workspace, Inspector, Console, Recycler, Shell, Librarian, Mandelbrot, Improv or Concurrence —
-  listing what that application's keys and clicks do.
+  to the key window's application, as on NeXTSTEP: every application brings its own — the Shell's
+  `New Shell` and `Clear Buffer`, the Librarian's `Find` and `Open Document`, Mandelbrot's `Image`
+  and `Dither`, Concurrence's `Topics` and `View`, Improv's `Item` — each with `Info`, `Windows`,
+  `Hide` and `Quit`, and the menu goes back to Workspace's when one of its windows (File Viewer,
+  Inspector, Console, Recycler) takes over. An application's Info and Help panels belong to it, so
+  its menu stays up while one of them is open.
+- Help: `Info ▸ Help…` (Cmd-?) opens a panel with a page for the application whose menu it came
+  from — the Workspace, Inspector, Console, Recycler, Shell, Librarian, Mandelbrot, Improv or
+  Concurrence — listing what that application's keys and clicks do.
 - Shell (`Tools ▸ Shell…`, Cmd-T): a real terminal running your login shell, emulated by
   `alacritty_terminal` and drawn in the four grays with a block cursor and scrollback on our
   left-side scroller. Resize the window to change the grid; the window title follows the shell's.
+  Its own menu has `New Shell` (Cmd-N), which starts a fresh login shell in the window and is the
+  way back after the old one exited, and `Clear Buffer` (Cmd-K), which empties the screen and the
+  scrollback — the prompt comes back with the next Return.
 - Digital Librarian (`Tools ▸ Librarian…`, Cmd-L), after the 1990 full-text search tool: the Shelf
   doubles as the bookshelf — click the folders to search (the home folder starts selected), type a
   word and press Return. Text documents are ranked by how often the word occurs, with the first
-  matching line beside each; double-click opens the document. It greps on a background thread
-  instead of pre-building an index, and stops after 4000 documents or 300 hits.
+  matching line beside each; double-click opens the document, or pick `Open Document` (Cmd-O) from
+  its menu, where `Find` (Cmd-F) searches. It greps on a background thread instead of pre-building
+  an index, and stops after 4000 documents or 300 hits.
 
   ![Digital Librarian](docs/screenshots/librarian.png)
 - Mandelbrot (`Tools ▸ Mandelbrot…`), after the 1.0 demo: the set in four grays with four dithering
   modes (ordered, knight's tour, noise mix, error diffusion), click / shift-click / rubber-band zoom,
-  depth control, and Save to a PNG in your home folder.
+  depth control, and Save to a PNG in your home folder. Its menu has the same controls — `Dither`
+  carries a check beside the mode in force, `Image ▸ Deeper` and `Shallower` work the depth.
 
   ![Mandelbrot](docs/screenshots/mandelbrot.png)
 - Concurrence (`Tools ▸ Concurrence…`), after Lighthouse Design's outliner and presenter: one

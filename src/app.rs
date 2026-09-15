@@ -102,6 +102,8 @@ pub struct App {
     save_at: Option<Instant>,
     pub wins: Vec<Win>,
     pub key: Option<WinKind>,
+    /// The last key window that was not a panel: whose menu is up, and whose Help page (§9.2).
+    menu_key: Option<WinKind>,
     activations: Vec<WinKind>,
     zc: u32,
     menu_seq: u64,
@@ -120,6 +122,8 @@ pub struct App {
 
 const KINDS: [WinKind; 12] = [WinKind::FileViewer, WinKind::Inspector, WinKind::Console, WinKind::Info, WinKind::Help, WinKind::Recycler, WinKind::Mandelbrot, WinKind::Improv, WinKind::Shell, WinKind::Concurrence, WinKind::Librarian, WinKind::Alert];
 pub fn wi(k: WinKind) -> usize { KINDS.iter().position(|x| *x == k).unwrap() }
+/// Panels belong to the application that put them up, so they never take the menu from it (§9.2).
+fn is_panel(k: WinKind) -> bool { matches!(k, WinKind::Info | WinKind::Help | WinKind::Alert) }
 
 impl App {
     pub fn new(cfg: Config, post: Arc<dyn Fn(Job) + Send + Sync>, fonts: Rc<Fonts>) -> App {
@@ -185,7 +189,7 @@ impl App {
         let improv = Improv::from_sheet(&st.improv);
         let mut app = App {
             w: st.os_window.w, h: st.os_window.h, zoom, quit: false, redraw: true, minimize: false, cfg, post, fonts,
-            home: home.clone(), roots, is_win, state: st, save_at: None, wins, key: None, activations: vec![], zc: 0, menu_seq: 0, menus: vec![], alert: None,
+            home: home.clone(), roots, is_win, state: st, save_at: None, wins, key: None, menu_key: None, activations: vec![], zc: 0, menu_seq: 0, menus: vec![], alert: None,
             fv: FileViewer::default(), insp: Inspector::default(), dock: Dock::default(), rec: RecWin::default(), mandel: Mandel::default(), improv, shell: Shell::default(), concur, lib: Librarian::default(),
             help: WinKind::FileViewer, console, console_scroll: 0, console_stick: true, capture: None, mouse: pt(0, 0), focused: true,
             refresh_at: Instant::now() + Duration::from_secs(5), clipboard: vec![], now: Instant::now(),
@@ -310,6 +314,7 @@ impl App {
     pub fn make_key(&mut self, k: WinKind) {
         self.front(k);
         if self.key != Some(k) { self.key = Some(k); }
+        if !is_panel(k) { self.menu_key = Some(k); }
         self.sync_main_menu();
     }
     /// The main menu belongs to the key window's application: while Improv is the key window the
@@ -321,6 +326,7 @@ impl App {
         let Some(i) = self.menus.iter().position(|m| m.kind == MenuKind::Main) else { return };
         self.menus[i].title = title.into();
         self.menus[i].items = items;
+        self.menus[i].path = vec![title.into()]; // its submenus are torn off under this application
         self.menus[i].w = MenuInst::width(&self.fonts, items, title);
     }
     /// Explicit user activation must also raise/focus the existing OS window.
@@ -370,6 +376,7 @@ impl App {
     fn drop_key(&mut self, k: WinKind) {
         if self.key != Some(k) { return; }
         self.key = self.wins.iter().filter(|w| w.shown() && w.kind != k && w.kind != WinKind::Alert).max_by_key(|w| w.z).map(|w| w.kind);
+        if let Some(n) = self.key.filter(|&n| !is_panel(n)) { self.menu_key = Some(n); }
         self.sync_main_menu();
     }
     pub fn miniaturize(&mut self, k: WinKind) {
@@ -522,7 +529,7 @@ impl App {
     fn build_menus(&mut self) {
         let w = MenuInst::width(&self.fonts, &MAIN_MENU, "Workspace");
         let id = self.next_menu_id();
-        self.menus.push(MenuInst { id, title: "Workspace".into(), items: &MAIN_MENU, path: vec![], pos: pt(self.state.menu_pos.x, self.state.menu_pos.y), w, kind: MenuKind::Main, open_item: None });
+        self.menus.push(MenuInst { id, title: "Workspace".into(), items: &MAIN_MENU, path: vec!["Workspace".into()], pos: pt(self.state.menu_pos.x, self.state.menu_pos.y), w, kind: MenuKind::Main, open_item: None });
         for t in self.state.torn_menus.clone() {
             if let Some(items) = resolve_path(&t.path) {
                 let title = t.path.last().cloned().unwrap_or_default();
@@ -534,12 +541,11 @@ impl App {
     }
     /// Whose menu the main menu is: the key window's application.
     fn main_menu(&self) -> (&'static str, &'static [ItemDef]) {
-        match self.key {
-            Some(WinKind::Improv) if self.win(WinKind::Improv).shown() => ("Improv", &IMPROV_MENU),
-            Some(WinKind::Concurrence) if self.win(WinKind::Concurrence).shown() => ("Concurrence", &CONCUR_MENU),
-            _ => ("Workspace", &MAIN_MENU),
-        }
+        let key = self.menu_owner();
+        APP_MENUS.iter().find(|(k, ..)| Some(*k) == key).map_or(("Workspace", &MAIN_MENU[..]), |&(_, title, items)| (title, items))
     }
+    /// The window whose menu is up: the last key one that was not a panel, while it is still there.
+    pub(crate) fn menu_owner(&self) -> Option<WinKind> { self.menu_key.filter(|&k| self.win(k).shown()) }
     fn next_menu_id(&mut self) -> u64 { self.menu_seq += 1; self.menu_seq }
     pub fn item_state(&self, it: &ItemDef) -> (bool, bool) {
         match it.act {
@@ -561,6 +567,10 @@ impl App {
             Act::Co(CBtn::Slide) => (false, self.concur.slides),
             Act::Co(CBtn::Present) => (self.c_slides().is_empty(), false),
             Act::CoMove(right) => (!self.c_can_move(right), false),
+            Act::ShClear => (self.shell.term.is_none(), false),
+            Act::LbOpen => (self.lib.sel.is_none(), false),
+            Act::Mb(MBtn::Radio(i)) => (false, self.mandel.mode == i),
+            Act::Mb(MBtn::Save) => (self.mandel.img.is_none(), false),
             _ => (false, false),
         }
     }
@@ -643,7 +653,7 @@ impl App {
         let (title, items) = self.main_menu();
         let w = MenuInst::width(&self.fonts, items, title);
         let id = self.next_menu_id();
-        self.menus.push(MenuInst { id, title: title.into(), items, path: vec![], pos: p, w, kind: MenuKind::Popup, open_item: None });
+        self.menus.push(MenuInst { id, title: title.into(), items, path: vec![title.into()], pos: p, w, kind: MenuKind::Popup, open_item: None });
     }
     /// Topmost menu part under `p`.
     fn menu_hit(&self, p: Pt) -> Option<(usize, MenuPart)> {
@@ -686,6 +696,11 @@ impl App {
             Act::IvDelRow | Act::IvDelCol => self.iv_del_item(a == Act::IvDelCol),
             Act::Co(b) => self.concur_btn(b),
             Act::CoMove(right) => self.c_move(right),
+            Act::Mb(b) => self.mandel_btn(b),
+            Act::ShNew => { self.shell_stop(); self.show_win(WinKind::Shell); } // also from a torn-off menu, with the window closed
+            Act::ShClear => self.shell_clear(),
+            Act::LbFind => { self.show_win(WinKind::Librarian); self.lib_search(); }
+            Act::LbOpen => { if let Some(i) = self.lib.sel { self.lib_open(i); } }
             Act::ShellWin => self.show_win(WinKind::Shell),
             Act::Concurrence => self.show_win(WinKind::Concurrence),
             Act::LibrarianWin => self.show_win(WinKind::Librarian),
@@ -1356,6 +1371,40 @@ mod tests {
         app.cfg.demo = Some("test".into()); // Quit must not write real user state in a unit test.
         app.close_surface(SurfaceId::Menu(main));
         assert!(app.quit);
+    }
+
+    /// Every application owns the main menu while its window is key, and the items on it act.
+    #[test]
+    fn every_application_brings_its_own_menu() {
+        fn labelled(items: &'static [ItemDef], label: &str) -> &'static ItemDef {
+            items.iter().find_map(|it| if it.label == label { Some(it) } else { it.sub.and_then(|s| s.iter().find(|x| x.label == label)) }).unwrap()
+        }
+        let mut app = App::test_app();
+        let title = |a: &App| a.menus.iter().find(|m| m.kind == MenuKind::Main).unwrap().title.clone();
+        assert_eq!(title(&app), "Workspace");
+        for &(kind, name, items) in &APP_MENUS {
+            app.win_mut(kind).visible = true; // not show_win: the Shell's would spawn a PTY
+            app.make_key(kind);
+            assert_eq!(title(&app), name, "{name}'s window is key");
+            assert_eq!(labelled(items, "Quit").act, Act::Quit, "{name} still quits");
+            for it in items.iter().filter(|it| it.sub.is_some()) {
+                let found = resolve_path(&[name.to_string(), it.label.to_string()]);
+                assert!(found.is_some_and(|r| std::ptr::eq(r, it.sub.unwrap())), "{name} ▸ {} comes back when torn off", it.label);
+            }
+            app.win_mut(kind).visible = false;
+        }
+        app.act(labelled(&MANDEL_MENU, "Knight's Tour").act);
+        assert_eq!(app.mandel.mode, 1);
+        assert_eq!(app.item_state(labelled(&MANDEL_MENU, "Knight's Tour")), (false, true), "the dithering in force is checked");
+        assert!(app.item_state(labelled(&LIBRARIAN_MENU, "Open Document")).0, "nothing found, nothing to open");
+        assert!(app.item_state(labelled(&SHELL_MENU, "Clear Buffer")).0, "no shell running, nothing to clear");
+        // the menu follows the window under the one that went away
+        app.win_mut(WinKind::Improv).visible = true;
+        app.make_key(WinKind::Improv);
+        app.show_win(WinKind::Mandelbrot);
+        assert_eq!(title(&app), "Mandelbrot");
+        app.close_win(WinKind::Mandelbrot);
+        assert_eq!(title(&app), "Improv", "Improv was the next window down");
     }
 
     #[test]

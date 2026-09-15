@@ -43,8 +43,16 @@ The owner then asked for the 2.0 (1990) aesthetics. Measured from toastytech's 2
 
 ## Help panels (v0.5)
 
-- NeXTSTEP applications each had their own help, served out of Digital Librarian-indexed RTF. Ours is one panel (`src/help.rs`) with a page per application, chosen from the key window when `Info ▸ Help…` opens it — the same Info menu is in every application menu, so the command is everywhere without a menu per application. The panel sizes itself to its page and has no scroller, so pages are short by construction and a test enforces that they fit. Pages are plain text with a key column, not RTF, and there is no index, search or cross-reference.
+- NeXTSTEP applications each had their own help, served out of Digital Librarian-indexed RTF. Ours is one panel (`src/help.rs`) with a page per application, the page of the window whose menu `Info ▸ Help…` came from — the same Info menu is in every application menu, so the command is everywhere without a help window per application. The panel sizes itself to its page and has no scroller, so pages are short by construction and a test enforces that they fit. Pages are plain text with a key column, not RTF, and there is no index, search or cross-reference.
 - The bundled Liberation faces have no `▸`, so page text avoids it and names menus in prose (“New Row, in the Item menu”); the test checks every character has a glyph.
+
+## A menu for every application (v0.5.1)
+
+- Improv and Concurrence had menus of their own; the Shell, the Librarian and Mandelbrot borrowed Workspace's, which offered them File, Disk, View and Tools and nothing of their own. `APP_MENUS` (`src/chrome.rs`) now maps the key window to its menu and `resolve_path` walks the same table, so an application declares its menu in one place and its torn-off submenus come back with it. The shape is `Info`, the application's own commands, `Windows`, `Hide`, `Quit` — no `Tools`, because only Workspace launches things.
+- The commands are the ones the window already offers as buttons, through the same call (`Dither ▸ Knight's Tour` *is* the radio button, `Image ▸ Reset` *is* the Reset button), so there is one implementation per command and `item_state` reads the same fields the buttons draw from: the dithering in force is checked, `Open Document` is disabled until a hit is selected, `Save` until there is an image.
+- The Shell had no buttons, so it gets the two commands a terminal needs. `New Shell` (Cmd-N) restarts the login shell in the window — also the way back after one has exited; NeXT's Terminal opened a new window for it, and ours has one Shell window. `Clear Buffer` (Cmd-K) clears the screen and the scrollback and puts the cursor home. It deliberately tells the shell nothing: a Ctrl-L would have it redraw its prompt, but the redraw scrolls a line straight back into the scrollback just emptied, so the window stays blank until the next Return.
+- Panels do not take the menu from their application: `make_key` remembers the last key window that was not one (`menu_key`, read through `App::menu_owner`), so an application's Info or Help panel leaves the menu — and the Help page — its own. The Info panel used to hand the menu back to Workspace.
+- A torn-off menu's path now starts with the application it came from: `Concurrence ▸ View` and `Workspace ▸ View` are different menus that shared a path, and therefore one entry in `state.json` and one torn window. Paths written before this are bare labels and are still resolved the old way, by scanning every root.
 
 ## Extra application: Concurrence (v0.5)
 

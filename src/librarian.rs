@@ -112,7 +112,7 @@ impl App {
         };
         self.lib.hits = hits;
     }
-    fn lib_open(&mut self, i: usize) {
+    pub fn lib_open(&mut self, i: usize) {
         let Some(path) = self.lib.hits.get(i).map(|h| h.path.clone()) else { return };
         self.log(format!("open {path}"));
         if let Err(e) = apps::open_path(&path) { self.error("Cannot open", e); }

@@ -11,7 +11,7 @@ use alacritty_terminal::sync::FairMutex;
 use alacritty_terminal::term::cell::Flags;
 use alacritty_terminal::term::{point_to_viewport, test::TermSize, Config, Term, TermMode};
 use alacritty_terminal::tty;
-use alacritty_terminal::vte::ansi::{Color, CursorShape, NamedColor, Rgb};
+use alacritty_terminal::vte::ansi::{ClearMode, Color, CursorShape, Handler, NamedColor, Rgb};
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -112,6 +112,16 @@ impl App {
         self.shell.cols = cols; self.shell.rows = rows;
         if let Some(t) = &self.shell.term { t.lock().resize(TermSize::new(cols, rows)); }
         if let Some(n) = &mut self.shell.notifier { n.on_resize(Self::window_size(cols, rows)); }
+    }
+    /// Clear Buffer: the screen and the scrollback go, as on a NeXT. The shell is not told, so the
+    /// prompt comes back with the next Return; sending it Ctrl-L instead would put a line back in
+    /// the scrollback we just emptied.
+    pub fn shell_clear(&mut self) {
+        let Some(t) = &self.shell.term else { return };
+        let mut t = t.lock();
+        t.clear_screen(ClearMode::All);   // scrolls the screen into the scrollback…
+        t.clear_screen(ClearMode::Saved); // …which then goes too, in this order
+        t.goto(0, 0);
     }
     pub fn shell_write(&mut self, s: String) { if let Some(n) = &self.shell.notifier { n.notify(s.into_bytes()); } }
     pub fn shell_title(&mut self, t: String) {

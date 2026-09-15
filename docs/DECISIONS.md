@@ -47,6 +47,22 @@ The owner then asked for the 2.0 (1990) aesthetics. Measured from toastytech's 2
 - The shell starts in the home directory with `TERM=xterm-256color`; closing the window sends the event loop a shutdown (hang-up); when the child exits the title says so and the next key closes the window. Clipboard, mouse selection and mouse reporting are not implemented.
 - On macOS, Cmd shortcuts still reach the menus while the Shell is key; on Windows the Shell takes all Ctrl combinations (so Ctrl-Q does not quit while it is key).
 
+## Extra application: Digital Librarian
+
+- Modelled on the 1990 NeXT application: a row of bookshelves above a "Find:" field and a ranked
+  list of documents. **The File Viewer Shelf is the bookshelf** — one persisted list of folders,
+  and dragging a folder onto the Shelf is exactly the gesture that added a bookshelf on a real
+  NeXT. Clicking a bookshelf selects it (click again to deselect); opening the window selects the
+  home folder, so Search can never mean "the whole disk" by accident.
+- **No index.** The original shipped `ixbuild` because the hardware was a 25 MHz 68030; we grep on
+  a background thread instead and cap a search at 4000 documents, 300 hits and 1 MB per document.
+  Documents are the text and source types of the icon map (`icons::is_text_like`); dot files and
+  dot folders are skipped, and `DirEntry::file_type` is used so symlinks are never followed into a
+  loop. Ranking is hit count, then name — no relevance weighting.
+- Results are a 16 px row list in the browser idiom (white selection, no per-row icons) showing the
+  name, the first matching line and the hit count. Double-click opens the document with the host OS;
+  Return in the field searches, the arrow keys walk the results.
+
 ## Extra application: Mandelbrot (v0.3.1)
 
 - Modelled on the 1.0 demo visible in the reference screenshot (white image panel, elapsed-time field, "Dithering" radio group with Standard PS / Knight's Tour / Ohlfs Mix / Error Diffusion, X/Y/Scale/Depth/Colors fields, one big button). There is no DSP, so it shows one image; the big button is Reset and a Save button writes `Mandelbrot-N.png` to the home folder.

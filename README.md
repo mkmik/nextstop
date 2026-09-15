@@ -63,6 +63,13 @@ to `state.json.bad` and defaults are used (the Console says so).
 - Shell (`Tools ▸ Shell…`, Cmd-T): a real terminal running your login shell, emulated by
   `alacritty_terminal` and drawn in the four grays with a block cursor and scrollback on our
   left-side scroller. Resize the window to change the grid; the window title follows the shell's.
+- Digital Librarian (`Tools ▸ Librarian…`, Cmd-L), after the 1990 full-text search tool: the Shelf
+  doubles as the bookshelf — click the folders to search (the home folder starts selected), type a
+  word and press Return. Text documents are ranked by how often the word occurs, with the first
+  matching line beside each; double-click opens the document. It greps on a background thread
+  instead of pre-building an index, and stops after 4000 documents or 300 hits.
+
+  ![Digital Librarian](docs/screenshots/librarian.png)
 - Mandelbrot (`Tools ▸ Mandelbrot…`), after the 1.0 demo: the set in four grays with four dithering
   modes (ordered, knight's tour, noise mix, error diffusion), click / shift-click / rubber-band zoom,
   depth control, and Save to a PNG in your home folder.
@@ -81,7 +88,9 @@ to `state.json.bad` and defaults are used (the Console says so).
 - Dock tiles always show the "not running" dots (except Workspace): host app state is not tracked.
 - Windows app icons are extracted at 32 px and scaled; the Windows build has no embedded exe icon
   and no installer.
-- Browser view only (no Icon or Listing view), no Preferences, no search. Inspector images: PNG only.
+- Browser view only (no Icon or Listing view), no Preferences. Inspector images: PNG only.
+- Librarian: whole-word/phrase substring search over text and source files only (by extension), no
+  index, no Boolean or proximity operators, no in-document highlighting.
 - Shell: no copy and paste or mouse selection yet; colors are mapped onto the four grays; on Windows,
   Ctrl shortcuts go to the shell while it is the key window.
 - Without the backdrop there is no right-click main menu (nothing of ours to click on the desktop).
@@ -105,7 +114,7 @@ cargo run -- --home /tmp/fakehome --config /tmp/cfg --headless script.txt --out 
 A script is one command per line: `size W H`, `click X Y`, `rclick X Y`, `dblclick X Y`,
 `drag X1 Y1 X2 Y2` … `drop`, `dragsel X Y` (from the selected cell), `key up|down|left|right|enter|esc|del|<char>`,
 `type text`, `mods [cmd] [shift] [alt]`, `wheel DX DY`, `wait MS`, `zoom 1|2`, `shot name.png`,
-`eval title|cols|selection|dock|shelf|menus|key|state`, `log N`. Every screenshot in
+`eval title|cols|selection|dock|shelf|menus|key|lib|state`, `log N`. Every screenshot in
 `docs/screenshots` was produced this way.
 
 See `docs/PRD.md` for the specification, `docs/DECISIONS.md` for deviations from it (including

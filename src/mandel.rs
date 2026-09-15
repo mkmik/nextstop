@@ -130,13 +130,6 @@ fn radio(p: &mut Painter, x: i32, y: i32, on: bool) {
     }
     if on { for dy in -2i32..=2 { let hw = if dy.abs() == 2 { 1 } else { 2 }; p.fill(rect(x + r - hw, y + r + dy, 2 * hw + 1, 1), BLACK); } }
 }
-fn field(p: &mut Painter, r: Rect, text: &str) {
-    p.fill(r, WHITE);
-    p.fill(rect(r.x, r.y, r.w, 2), DARK); p.fill(rect(r.x, r.y, 2, r.h), DARK);
-    p.hline(r.x, r.bottom() - 2, r.w, LIGHT); p.hline(r.x, r.bottom() - 1, r.w, WHITE);
-    p.vline(r.right() - 2, r.y, r.h, LIGHT); p.vline(r.right() - 1, r.y, r.h, WHITE);
-    p.text_in(FontId::Regular, 12, rect(r.x + 5, r.y, r.w - 8, r.h), Align::Left, &p.ellipsize(FontId::Regular, 12, text, r.w - 8), BLACK);
-}
 fn dashed_outline(p: &mut Painter, r: Rect) {
     for i in 0..r.w { let c = if i % 4 < 2 { BLACK } else { WHITE }; p.fill(rect(r.x + i, r.y, 1, 1), c); p.fill(rect(r.x + i, r.bottom() - 1, 1, 1), c); }
     for i in 0..r.h { let c = if i % 4 < 2 { BLACK } else { WHITE }; p.fill(rect(r.x, r.y + i, 1, 1), c); p.fill(rect(r.right() - 1, r.y + i, 1, 1), c); }

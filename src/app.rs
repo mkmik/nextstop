@@ -7,6 +7,7 @@ use crate::fileviewer::FileViewer;
 use crate::geom::{pt, rect, Pt, Rect};
 use crate::icons;
 use crate::inspector::Inspector;
+use crate::librarian::{Hit, Librarian};
 use crate::mandel::{MBtn, Mandel};
 use crate::shell::Shell;
 use crate::paint::*;
@@ -40,6 +41,7 @@ pub enum Job {
     Done { what: String, result: Result<(), String> },
     NewFolder(Result<String, String>),
     Mandel { seq: u64, iters: Vec<u16>, ms: u32 },
+    Found { seq: u64, hits: Vec<Hit>, scanned: usize },
     TermWake, TermTitle(String), TermWrite(String), TermExit,
 }
 
@@ -52,7 +54,7 @@ pub enum Pending { Nothing, Trash(Vec<String>), Destroy(Vec<String>), EmptyTrash
 pub struct Alert { pub message: String, pub detail: String, pub buttons: Vec<String>, pub pending: Pending, pub prev_key: Option<WinKind> }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum ScrollId { Col(u64), Browser, Console, InspText, Recycler, Shell }
+pub enum ScrollId { Col(u64), Browser, Console, InspText, Recycler, Shell, Librarian }
 
 /// Every press-and-release control on the Screen (§9.2).
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -60,7 +62,7 @@ pub enum ScrollId { Col(u64), Browser, Console, InspText, Recycler, Shell }
 pub enum Btn {
     WinMini(WinKind), WinClose(WinKind), MenuClose(u64), MenuItem(u64, usize), AlertBtn(usize),
     Tile(TileId), Miniwin(WinKind), ScrollArrow(ScrollId, i8), Shelf(usize), PathItem(usize),
-    InspPopup, InspRow(usize), InspCompute, RecBtn, Cell(usize, usize), Mandel(MBtn),
+    InspPopup, InspRow(usize), InspCompute, RecBtn, Cell(usize, usize), Mandel(MBtn), LibSearch, LibBook(usize),
 }
 
 pub enum Capture {
@@ -102,7 +104,7 @@ pub struct App {
     menu_seq: u64,
     pub menus: Vec<MenuInst>,
     pub alert: Option<Alert>,
-    pub fv: FileViewer, pub insp: Inspector, pub dock: Dock, pub rec: RecWin, pub mandel: Mandel, pub shell: Shell,
+    pub fv: FileViewer, pub insp: Inspector, pub dock: Dock, pub rec: RecWin, pub mandel: Mandel, pub shell: Shell, pub lib: Librarian,
     pub console: Vec<String>, pub console_scroll: i32, console_stick: bool,
     pub capture: Option<Capture>,
     pub mouse: Pt,
@@ -112,7 +114,7 @@ pub struct App {
     pub now: Instant,
 }
 
-const KINDS: [WinKind; 8] = [WinKind::FileViewer, WinKind::Inspector, WinKind::Console, WinKind::Info, WinKind::Recycler, WinKind::Mandelbrot, WinKind::Shell, WinKind::Alert];
+const KINDS: [WinKind; 9] = [WinKind::FileViewer, WinKind::Inspector, WinKind::Console, WinKind::Info, WinKind::Recycler, WinKind::Mandelbrot, WinKind::Shell, WinKind::Librarian, WinKind::Alert];
 pub fn wi(k: WinKind) -> usize { KINDS.iter().position(|x| *x == k).unwrap() }
 
 impl App {
@@ -155,6 +157,7 @@ impl App {
             Win::new(WinKind::Recycler, wr(&st.windows.recycler), "Recycler", "recycler-empty"),
             Win::new(WinKind::Mandelbrot, rect(st.windows.mandelbrot.x, st.windows.mandelbrot.y, crate::mandel::WIN_W, crate::mandel::WIN_H), "Mandelbrot", "file-image"),
             Win::new(WinKind::Shell, wr(&st.windows.shell), "Shell", "miniwindow"),
+            Win::new(WinKind::Librarian, wr(&st.windows.librarian), "Digital Librarian", "file-text"),
             Win::new(WinKind::Alert, rect(0, 0, 380, 176), "", "alert"),
         ];
         wins[wi(WinKind::FileViewer)].min_w = 480; wins[wi(WinKind::FileViewer)].min_h = 320;
@@ -164,13 +167,14 @@ impl App {
         wins[wi(WinKind::Recycler)].min_w = 200; wins[wi(WinKind::Recycler)].min_h = 120;
         wins[wi(WinKind::Mandelbrot)].resizable = false;
         wins[wi(WinKind::Shell)].min_w = 20 * crate::shell::CELL_W + SCROLL_W + 2 * crate::shell::PAD; wins[wi(WinKind::Shell)].min_h = 5 * crate::shell::CELL_H + 2 * crate::shell::PAD + TITLE_H + RESIZE_H;
+        wins[wi(WinKind::Librarian)].min_w = 420; wins[wi(WinKind::Librarian)].min_h = 260;
         let a = &mut wins[wi(WinKind::Alert)];
         a.resizable = false; a.mini_btn = false; a.close_btn = false;
         let zoom = cfg.scale_override.filter(|z| (0.5..=4.0).contains(z)).unwrap_or(st.scale);
         let mut app = App {
             w: st.os_window.w, h: st.os_window.h, zoom, quit: false, redraw: true, minimize: false, cfg, post, fonts,
             home: home.clone(), roots, is_win, state: st, save_at: None, wins, key: None, activations: vec![], zc: 0, menu_seq: 0, menus: vec![], alert: None,
-            fv: FileViewer::default(), insp: Inspector::default(), dock: Dock::default(), rec: RecWin::default(), mandel: Mandel::default(), shell: Shell::default(),
+            fv: FileViewer::default(), insp: Inspector::default(), dock: Dock::default(), rec: RecWin::default(), mandel: Mandel::default(), shell: Shell::default(), lib: Librarian::default(),
             console, console_scroll: 0, console_stick: true, capture: None, mouse: pt(0, 0), focused: true,
             refresh_at: Instant::now() + Duration::from_secs(5), clipboard: vec![], now: Instant::now(),
         };
@@ -194,6 +198,7 @@ impl App {
         if self.state.windows.recycler.open { self.show_win(WinKind::Recycler); }
         if self.state.windows.mandelbrot.open { self.show_win(WinKind::Mandelbrot); }
         if self.state.windows.shell.open { self.show_win(WinKind::Shell); }
+        if self.state.windows.librarian.open { self.show_win(WinKind::Librarian); }
         if self.state.windows.file_viewer.open { self.activate_win(WinKind::FileViewer); }
         self.log("ReWorkspace started".into());
         let path = self.state.windows.file_viewer.path.clone();
@@ -272,6 +277,7 @@ impl App {
             "surfaces" => self.surfaces().iter().map(|s| format!("{:?}", s.id)).collect::<Vec<_>>().join(" "),
             "selection" => self.fv_deep_selection().iter().map(|e| e.path.clone()).collect::<Vec<_>>().join(","),
             "cols" => self.fv.cols.iter().map(|c| format!("{}({})", c.dir.clone().unwrap_or("Computer".into()), c.entries.len())).collect::<Vec<_>>().join(" | "),
+            "lib" => format!("sel={:?} {}", self.lib.sel, self.lib.hits.iter().map(|h| format!("{}({})", h.name, h.count)).collect::<Vec<_>>().join(" ")),
             "state" => serde_json::to_string(&self.state).unwrap_or_default(),
             "selrect" => self.fv_sel_cell_rect().map_or("none".into(), |r| format!("{} {} {} {}", r.x, r.y, r.w, r.h)),
             q if q.starts_with("cellrect ") => {
@@ -300,7 +306,7 @@ impl App {
     pub fn take_activations(&mut self) -> Vec<WinKind> { std::mem::take(&mut self.activations) }
     fn state_win(&mut self, k: WinKind) -> Option<&mut state::WinState> {
         let w = &mut self.state.windows;
-        match k { WinKind::FileViewer => Some(&mut w.file_viewer), WinKind::Inspector => Some(&mut w.inspector), WinKind::Console => Some(&mut w.console), WinKind::Recycler => Some(&mut w.recycler), WinKind::Mandelbrot => Some(&mut w.mandelbrot), WinKind::Shell => Some(&mut w.shell), _ => None }
+        match k { WinKind::FileViewer => Some(&mut w.file_viewer), WinKind::Inspector => Some(&mut w.inspector), WinKind::Console => Some(&mut w.console), WinKind::Recycler => Some(&mut w.recycler), WinKind::Mandelbrot => Some(&mut w.mandelbrot), WinKind::Shell => Some(&mut w.shell), WinKind::Librarian => Some(&mut w.librarian), _ => None }
     }
     fn sync_win_state(&mut self, k: WinKind) {
         let (r, open) = { let w = self.win(k); (w.r, w.visible) };
@@ -319,6 +325,7 @@ impl App {
         if k == WinKind::Inspector { self.insp_refresh(); }
         if k == WinKind::Mandelbrot { self.mandel_ensure(); }
         if k == WinKind::Shell { self.shell_start(); }
+        if k == WinKind::Librarian { self.lib_show(); }
         self.redraw = true;
     }
     pub fn close_win(&mut self, k: WinKind) {
@@ -469,6 +476,7 @@ impl App {
                 self.update_trash();
             }
             Job::Mandel { seq, iters, ms } => self.mandel_done(seq, iters, ms),
+            Job::Found { seq, hits, scanned } => self.lib_found(seq, hits, scanned),
             Job::TermWake => {}
             Job::TermTitle(t) => self.shell_title(t),
             Job::TermWrite(s) => self.shell_write(s),
@@ -629,6 +637,7 @@ impl App {
             Act::ConsoleWin => self.show_win(WinKind::Console),
             Act::Mandelbrot => self.show_win(WinKind::Mandelbrot),
             Act::ShellWin => self.show_win(WinKind::Shell),
+            Act::LibrarianWin => self.show_win(WinKind::Librarian),
             Act::FileViewerWin => self.show_win(WinKind::FileViewer),
             Act::ArrangeFront => {
                 let mut order: Vec<WinKind> = self.wins.iter().filter(|w| w.shown() && w.kind != WinKind::Alert).map(|w| w.kind).collect();
@@ -717,6 +726,7 @@ impl App {
             WinKind::Recycler => self.rec_mouse_down(p),
             WinKind::Mandelbrot => self.mandel_mouse_down(p),
             WinKind::Shell => self.shell_mouse_down(p),
+            WinKind::Librarian => self.lib_mouse_down(p),
             _ => {}
         }
     }
@@ -742,6 +752,7 @@ impl App {
             ScrollId::InspText => self.insp.scroll,
             ScrollId::Recycler => self.rec.scroll,
             ScrollId::Shell => self.shell_scroller().pos,
+            ScrollId::Librarian => self.lib.scroll,
         }
     }
     pub fn set_scroll(&mut self, id: ScrollId, v: i32) {
@@ -754,6 +765,7 @@ impl App {
             ScrollId::InspText => self.insp.scroll = v,
             ScrollId::Recycler => self.rec.scroll = v,
             ScrollId::Shell => self.shell_set_scroll(v),
+            ScrollId::Librarian => self.lib.scroll = v,
         }
         self.redraw = true;
     }
@@ -765,6 +777,7 @@ impl App {
             ScrollId::InspText => self.insp_text_scroller(),
             ScrollId::Recycler => Some(self.rec_scroller()),
             ScrollId::Shell => Some(self.shell_scroller()),
+            ScrollId::Librarian => Some(self.lib_scroller()),
         }
     }
 
@@ -859,6 +872,7 @@ impl App {
                 WinKind::Recycler => self.rec_btn_hit(p),
                 WinKind::Mandelbrot => self.mandel_btn_hit(p),
                 WinKind::Shell => self.shell_btn_hit(p),
+                WinKind::Librarian => self.lib_btn_hit(p),
                 _ => None,
             },
             _ => None,
@@ -892,6 +906,8 @@ impl App {
             Btn::InspCompute => self.insp_compute(),
             Btn::RecBtn => self.rec_button(),
             Btn::Mandel(b) => self.mandel_btn(b),
+            Btn::LibSearch => self.lib_search(),
+            Btn::LibBook(i) => self.lib_toggle_book(i),
             Btn::Cell(..) => {}
         }
     }
@@ -913,6 +929,7 @@ impl App {
             WinKind::Inspector => self.scroll_by(ScrollId::InspText, dy),
             WinKind::Recycler => self.scroll_by(ScrollId::Recycler, dy),
             WinKind::Shell => self.shell_wheel(dy),
+            WinKind::Librarian => self.scroll_by(ScrollId::Librarian, dy),
             _ => {}
         }
     }
@@ -934,6 +951,7 @@ impl App {
             }
             return;
         }
+        if self.key == Some(WinKind::Librarian) && self.win(WinKind::Librarian).shown() { self.lib_key(k); return; }
         if self.key == Some(WinKind::FileViewer) && self.win(WinKind::FileViewer).shown() { self.fv_key(k, mods); }
     }
 
@@ -1037,6 +1055,7 @@ impl App {
             WinKind::Recycler => self.rec_draw(p, c),
             WinKind::Mandelbrot => self.mandel_draw(p, c),
             WinKind::Shell => self.shell_draw(p, c),
+            WinKind::Librarian => self.lib_draw(p, c),
             WinKind::Alert => self.alert_draw(p, c),
         }
         p.pop_clip();

@@ -7,6 +7,7 @@ mod fileviewer;
 mod geom;
 mod icons;
 mod inspector;
+mod librarian;
 mod mandel;
 mod paint;
 mod shell;

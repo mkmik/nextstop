@@ -129,6 +129,7 @@ pub struct Painter<'a> {
     pub fonts: &'a Fonts,
     pub icons: &'a Icons,
     ox: i32, oy: i32, // logical origin of this surface (Screen coordinates of its top-left)
+    slant: f32,       // glyph lean per pixel above the baseline (text_oblique)
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -137,7 +138,7 @@ pub enum Align { Left, Center }
 impl<'a> Painter<'a> {
     pub fn new(fb: Frame<'a>, s: f32, fonts: &'a Fonts, icons: &'a Icons) -> Painter<'a> {
         let clip = vec![rect(0, 0, fb.w as i32, fb.h as i32)];
-        Painter { fb, s, clip, fonts, icons, ox: 0, oy: 0 }
+        Painter { fb, s, clip, fonts, icons, ox: 0, oy: 0, slant: 0.0 }
     }
     /// Draw Screen-coordinate content into a surface whose top-left is at logical (ox, oy).
     pub fn set_origin(&mut self, ox: i32, oy: i32) { self.ox = ox; self.oy = oy; }
@@ -239,8 +240,9 @@ impl<'a> Painter<'a> {
             for row in 0..m.height as i32 {
                 let yy = gy + row;
                 if yy < clip.y || yy >= clip.bottom() { continue; }
+                let lean = ((base - yy) as f32 * self.slant).round() as i32;
                 for col in 0..m.width as i32 {
-                    let xx = gx + col;
+                    let xx = gx + col + lean;
                     if xx < clip.x || xx >= clip.right() { continue; }
                     let cov = g.bitmap[(row * m.width as i32 + col) as usize] as u32;
                     if cov == 0 { continue; }
@@ -255,6 +257,15 @@ impl<'a> Painter<'a> {
             pen += m.advance_width;
         }
         ((pen - self.dx(x) as f32) / self.s).round() as i32
+    }
+    /// Oblique text: every row leans right the further it is above the baseline, which is how the
+    /// Preferences module titles get the Helvetica Oblique of the original out of an upright face.
+    /// The advance is the upright one, so leave room for the last glyph's lean.
+    pub fn text_oblique(&mut self, font: FontId, size: i32, x: i32, y_base: i32, text: &str, color: u32) -> i32 {
+        self.slant = 0.21;
+        let w = self.text(font, size, x, y_base, text, color);
+        self.slant = 0.0;
+        w
     }
     /// Baseline (logical) that vertically centers `size` text in a box starting at `y` with height `h`.
     pub fn baseline(&self, font: FontId, size: i32, y: i32, h: i32) -> i32 {

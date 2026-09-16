@@ -86,6 +86,15 @@ pub fn button(p: &mut Painter, r: Rect, label: &str, pressed: bool, default: boo
     if default { glyph_return(p, r.right() - 18, r.y + r.h / 2 - 4); }
 }
 
+/// Bordered group with its title breaking the top edge (the Preferences and Mandelbrot panes).
+pub fn group(p: &mut Painter, r: Rect, title: &str) {
+    p.hline(r.x, r.y, r.w, DARK); p.vline(r.x, r.y, r.h, DARK);
+    p.hline(r.x, r.bottom() - 1, r.w, WHITE); p.vline(r.right() - 1, r.y, r.h, WHITE);
+    let tw = p.text_width(FontId::Regular, 12, title);
+    p.fill(rect(r.x + 8, r.y - 6, tw + 8, 12), LIGHT);
+    p.text(FontId::Regular, 12, r.x + 12, r.y + 4, title, BLACK);
+}
+
 /// Dock-style tile bevel as in 2.0: 2 px white top/left, 1 px dark + 1 px black bottom/right.
 pub fn tile_bevel(p: &mut Painter, r: Rect) {
     p.fill(r, LIGHT);
@@ -97,7 +106,7 @@ pub fn tile_bevel(p: &mut Painter, r: Rect) {
 // ---- windows -------------------------------------------------------------------------------
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
-pub enum WinKind { FileViewer, Inspector, Console, Info, Help, Recycler, Mandelbrot, Improv, Shell, Concurrence, Librarian, Alert }
+pub enum WinKind { FileViewer, Inspector, Console, Info, Help, Recycler, Mandelbrot, Improv, Shell, Concurrence, Librarian, Preferences, Alert }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum WinPart { Title, MiniBtn, CloseBtn, Resize(i8), Content }
@@ -267,7 +276,7 @@ impl Scroller {
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Act {
     None, Disabled, InfoPanel, Help, Open, NewFolder, Duplicate, Destroy, EmptyRecycler, Copy, Paste, SelectAll, CheckDisks,
-    ViewBrowser, Scale1, Scale15, Scale2, ShowHidden, Backdrop, ShowDock, ShowMiniwindows, ShowRecycler, Inspector, ConsoleWin, Mandelbrot, Improv, ShellWin, Concurrence, LibrarianWin, FileViewerWin, RecyclerWin, ArrangeFront, Miniaturize, CloseWin, Hide, Quit,
+    ViewBrowser, Scale1, Scale15, Scale2, PrefsWin, ShowHidden, Backdrop, ShowDock, ShowMiniwindows, ShowRecycler, Inspector, ConsoleWin, Mandelbrot, Improv, ShellWin, Concurrence, LibrarianWin, FileViewerWin, RecyclerWin, ArrangeFront, Miniaturize, CloseWin, Hide, Quit,
     IvNewRow, IvNewCol, IvDelRow, IvDelCol, Co(CBtn), CoMove(bool),
     ShNew, ShClear, LbFind, LbOpen, Mb(MBtn),
 }
@@ -277,7 +286,7 @@ const fn item(label: &'static str, key: Option<char>, act: Act) -> ItemDef { Ite
 const fn sub(label: &'static str, sub: &'static [ItemDef]) -> ItemDef { ItemDef { label, key: None, sub: Some(sub), act: Act::None } }
 
 pub static SCALE_MENU: [ItemDef; 3] = [item("1×", None, Act::Scale1), item("1.5×", None, Act::Scale15), item("2×", None, Act::Scale2)];
-pub static INFO_MENU: [ItemDef; 3] = [item("Info Panel…", None, Act::InfoPanel), item("Preferences…", None, Act::Disabled), item("Help…", Some('?'), Act::Help)];
+pub static INFO_MENU: [ItemDef; 3] = [item("Info Panel…", None, Act::InfoPanel), item("Preferences…", None, Act::PrefsWin), item("Help…", Some('?'), Act::Help)];
 pub static FILE_MENU: [ItemDef; 7] = [
     item("Open", Some('o'), Act::Open), item("Open as Folder", Some('O'), Act::Disabled), item("New Folder", Some('n'), Act::NewFolder),
     item("Duplicate", Some('d'), Act::Duplicate), item("Compress", None, Act::Disabled), item("Destroy", Some('r'), Act::Destroy), item("Empty Recycler", None, Act::EmptyRecycler),
@@ -319,6 +328,9 @@ pub static LIBRARIAN_MENU: [ItemDef; 6] = [
     sub("Info", &INFO_MENU), item("Find", Some('f'), Act::LbFind), item("Open Document", Some('o'), Act::LbOpen),
     sub("Windows", &WINDOWS_MENU), item("Hide", Some('h'), Act::Hide), item("Quit", Some('q'), Act::Quit),
 ];
+/// Preferences' menu, which is the one in the 1.0 screenshot (Info, Window, Edit, Hide, Quit)
+/// without Edit: nothing in this window is typed into.
+pub static PREFS_MENU: [ItemDef; 4] = [sub("Info", &INFO_MENU), sub("Windows", &WINDOWS_MENU), item("Hide", Some('h'), Act::Hide), item("Quit", Some('q'), Act::Quit)];
 pub static IMAGE_MENU: [ItemDef; 4] = [item("Deeper", None, Act::Mb(MBtn::DepthUp)), item("Shallower", None, Act::Mb(MBtn::DepthDown)), item("Reset", None, Act::Mb(MBtn::Reset)), item("Save", Some('s'), Act::Mb(MBtn::Save))];
 pub static DITHER_MENU: [ItemDef; 4] = [item("Standard PS", None, Act::Mb(MBtn::Radio(0))), item("Knight's Tour", None, Act::Mb(MBtn::Radio(1))), item("Ohlfs Mix", None, Act::Mb(MBtn::Radio(2))), item("Error Diffusion", None, Act::Mb(MBtn::Radio(3)))];
 pub static MANDEL_MENU: [ItemDef; 6] = [
@@ -328,12 +340,13 @@ pub static MANDEL_MENU: [ItemDef; 6] = [
 
 /// Which application owns the main menu while its window is the key one; any other window is
 /// Workspace's. A new application window belongs here, or it borrows the Workspace menu.
-pub static APP_MENUS: [(WinKind, &str, &[ItemDef]); 5] = [
+pub static APP_MENUS: [(WinKind, &str, &[ItemDef]); 6] = [
     (WinKind::Improv, "Improv", &IMPROV_MENU),
     (WinKind::Concurrence, "Concurrence", &CONCUR_MENU),
     (WinKind::Shell, "Shell", &SHELL_MENU),
     (WinKind::Librarian, "Librarian", &LIBRARIAN_MENU),
     (WinKind::Mandelbrot, "Mandelbrot", &MANDEL_MENU),
+    (WinKind::Preferences, "Preferences", &PREFS_MENU),
 ];
 
 pub static WINDOWS_MENU: [ItemDef; 5] = [item("File Viewer", None, Act::FileViewerWin), item("Recycler", None, Act::RecyclerWin), item("Arrange in Front", None, Act::ArrangeFront), item("Miniaturize Window", Some('m'), Act::Miniaturize), item("Close Window", Some('w'), Act::CloseWin)];

@@ -13,6 +13,7 @@ mod inspector;
 mod librarian;
 mod mandel;
 mod paint;
+mod prefs;
 mod shell;
 
 use app::{App, Button, Config, Ev, Level, Mods, SurfaceId, SurfaceInfo};

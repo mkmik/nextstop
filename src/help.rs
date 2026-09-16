@@ -12,7 +12,7 @@ pub const HELP_W: i32 = 430;
 
 /// A line is either `key<tab>what it does` or a sentence; an empty one is a blank line. Keep the
 /// text to what the window does not already show — this is help, not the README.
-const PAGES: [(WinKind, &str, &str); 9] = [
+const PAGES: [(WinKind, &str, &str); 10] = [
     (WinKind::FileViewer, "Workspace", "\
 The Workspace browses the file system in columns.
 
@@ -121,6 +121,19 @@ Escape\tend the show
 
 Save writes the outline as Presentation-N.txt in
 your home folder; it also lives in state.json."),
+    (WinKind::Preferences, "Preferences", "\
+Preferences, in the Info menu of every application,
+keeps the settings of the Screen. The icons along
+the top are the modules; click one for its pane.
+
+Display\tthe scale everything is drawn at
+Workspace\tthe Dock, the tiles and the backdrop
+Expert\thidden files, and where settings live
+
+Drag the scale knob and let go: text and icons are
+drawn again at the new size, from a quarter step to
+four times. The View menu has the same commands, so
+a switch here and its menu item always agree."),
 ];
 
 fn page(k: WinKind) -> (&'static str, &'static str) {

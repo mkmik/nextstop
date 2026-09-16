@@ -242,12 +242,7 @@ impl App {
         let m = &self.mandel;
         p.text(FontId::Regular, 12, c.x + 20, c.y + 361, "Elapsed time:", BLACK);
         field(p, rect(c.x + 110, c.y + 348, 80, 20), &format!("{:.3} s", m.ms as f32 / 1000.0));
-        // Dithering group
-        let g = rect(c.x + 20, c.y + 386, 150, 108);
-        p.hline(g.x, g.y, g.w, DARK); p.vline(g.x, g.y, g.h, DARK); p.hline(g.x, g.bottom() - 1, g.w, WHITE); p.vline(g.right() - 1, g.y, g.h, WHITE);
-        let tw = p.text_width(FontId::Regular, 12, "Dithering");
-        p.fill(rect(g.x + 8, g.y - 6, tw + 8, 12), LIGHT);
-        p.text(FontId::Regular, 12, g.x + 12, g.y + 4, "Dithering", BLACK);
+        group(p, rect(c.x + 20, c.y + 386, 150, 108), "Dithering");
         for (i, name) in MODES.iter().enumerate() {
             let r = self.m_radio(i);
             radio(p, r.x, r.y + 1, m.mode == i);

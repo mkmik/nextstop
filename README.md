@@ -37,9 +37,10 @@ xattr -cr /Applications/ReWorkspace.app
 
 **Windows (x64, arm64)** — `ReWorkspace-portable-*.exe` is the whole program; run it from anywhere.
 
-`View ▸ Scale` offers 1×, 1.5× and 2×; any factor works from the command line, for example
-`reworkspace --scale 1.25` (0.5 to 4, not saved unless you then pick a menu item). Text and icons
-are re-rasterized at the new size, so nothing is upscaled bitmaps.
+`View ▸ Scale` offers 1×, 1.5× and 2×, and `Info ▸ Preferences…` has the whole range on a slider
+(0.5× to 4× in quarter steps, kept in `state.json`); any factor also works from the command line,
+for example `reworkspace --scale 1.25` (0.5 to 4, not saved unless you then set one in the app).
+Text and icons are re-rasterized at the new size, so nothing is upscaled bitmaps.
 
 State lives in one file: `~/Library/Application Support/ReWorkspace/state.json` (macOS) or
 `%APPDATA%\ReWorkspace\state.json` (Windows). Delete it to start fresh. A corrupt file is renamed
@@ -67,8 +68,17 @@ to `state.json.bad` and defaults are used (the Console says so).
   Inspector, Console, Recycler) takes over. An application's Info and Help panels belong to it, so
   its menu stays up while one of them is open.
 - Help: `Info ▸ Help…` (Cmd-?) opens a panel with a page for the application whose menu it came
-  from — the Workspace, Inspector, Console, Recycler, Shell, Librarian, Mandelbrot, Improv or
-  Concurrence — listing what that application's keys and clicks do.
+  from — the Workspace, Inspector, Console, Recycler, Shell, Librarian, Mandelbrot, Improv,
+  Concurrence or Preferences — listing what that application's keys and clicks do.
+- Preferences (`Info ▸ Preferences…`, from any application's menu), after the 1990 application:
+  a row of module icons over the pane of the one that is selected, in the original's layout.
+  **Display** sets the scale on a slider — drag the knob and let go and everything is drawn again
+  between 0.5× and 4×, in quarter steps, which is the same setting as `View ▸ Scale` and
+  `--scale`. **Workspace** switches the Dock, the miniwindow and Recycler tiles and the Screen
+  Backdrop, **Expert** the hidden files, and tells you where `state.json` lives. Every switch runs
+  the View menu command of the same name, so a switch and its menu item can never disagree.
+
+  ![Preferences](docs/screenshots/preferences.png)
 - Shell (`Tools ▸ Shell…`, Cmd-T): a real terminal running your login shell, emulated by
   `alacritty_terminal` and drawn in the four grays with a block cursor and scrollback on our
   left-side scroller. Resize the window to change the grid; the window title follows the shell's.
@@ -135,7 +145,11 @@ to `state.json.bad` and defaults are used (the Console says so).
 - Dock tiles always show the "not running" dots (except Workspace): host app state is not tracked.
 - Windows app icons are extracted at 32 px and scaled; the Windows build has no embedded exe icon
   and no installer.
-- Browser view only (no Icon or Listing view), no Preferences. Inspector images: PNG only.
+- Browser view only (no Icon or Listing view). Inspector images: PNG only.
+- Preferences has the three modules whose settings this clone actually has, and its icon row does
+  not scroll (they fit); the original's Date & Time, Sound, Password, Localization, Font and
+  UNIX Expert modules set things we do not own. No Set button: a switch acts at once and the
+  scale when the knob is let go.
 - Librarian: whole-word/phrase substring search over text and source files only (by extension), no
   index, no Boolean or proximity operators, no in-document highlighting.
 - Concurrence: one line per bullet (long ones are ellipsized, not wrapped), no styles, images, charts

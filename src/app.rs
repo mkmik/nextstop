@@ -9,6 +9,7 @@ use crate::icons;
 use crate::inspector::Inspector;
 use crate::concur::{CBtn, Concur};
 use crate::librarian::{Hit, Librarian};
+use crate::prefs::{PBtn, Prefs};
 use crate::improv::Improv;
 use crate::mandel::{MBtn, Mandel};
 use crate::shell::Shell;
@@ -64,7 +65,7 @@ pub enum ScrollId { Col(u64), Browser, Console, InspText, Recycler, Shell, Outli
 pub enum Btn {
     WinMini(WinKind), WinClose(WinKind), MenuClose(u64), MenuItem(u64, usize), AlertBtn(usize),
     Tile(TileId), Miniwin(WinKind), ScrollArrow(ScrollId, i8), Shelf(usize), PathItem(usize),
-    InspPopup, InspRow(usize), InspCompute, RecBtn, Cell(usize, usize), Mandel(MBtn), Concur(CBtn), LibSearch, LibBook(usize),
+    InspPopup, InspRow(usize), InspCompute, RecBtn, Cell(usize, usize), Mandel(MBtn), Concur(CBtn), LibSearch, LibBook(usize), Pref(PBtn),
 }
 
 pub enum Capture {
@@ -79,6 +80,7 @@ pub enum Capture {
     TilePress { idx: usize, start: Pt, dx: i32, dy: i32 },
     MandelDrag { start: Pt },
     ImprovTile { cat: usize, grab: Pt, at: Pt },
+    PrefSlider,
 }
 
 /// One real OS window in multi-window mode (or one layer of the headless composite).
@@ -109,7 +111,7 @@ pub struct App {
     menu_seq: u64,
     pub menus: Vec<MenuInst>,
     pub alert: Option<Alert>,
-    pub fv: FileViewer, pub insp: Inspector, pub dock: Dock, pub rec: RecWin, pub mandel: Mandel, pub improv: Improv, pub shell: Shell, pub concur: Concur, pub lib: Librarian,
+    pub fv: FileViewer, pub insp: Inspector, pub dock: Dock, pub rec: RecWin, pub mandel: Mandel, pub improv: Improv, pub shell: Shell, pub concur: Concur, pub lib: Librarian, pub prefs: Prefs,
     pub help: WinKind, // the application whose page the Help panel shows
     pub console: Vec<String>, pub console_scroll: i32, console_stick: bool,
     pub capture: Option<Capture>,
@@ -120,7 +122,7 @@ pub struct App {
     pub now: Instant,
 }
 
-const KINDS: [WinKind; 12] = [WinKind::FileViewer, WinKind::Inspector, WinKind::Console, WinKind::Info, WinKind::Help, WinKind::Recycler, WinKind::Mandelbrot, WinKind::Improv, WinKind::Shell, WinKind::Concurrence, WinKind::Librarian, WinKind::Alert];
+const KINDS: [WinKind; 13] = [WinKind::FileViewer, WinKind::Inspector, WinKind::Console, WinKind::Info, WinKind::Help, WinKind::Recycler, WinKind::Mandelbrot, WinKind::Improv, WinKind::Shell, WinKind::Concurrence, WinKind::Librarian, WinKind::Preferences, WinKind::Alert];
 pub fn wi(k: WinKind) -> usize { KINDS.iter().position(|x| *x == k).unwrap() }
 /// Panels belong to the application that put them up, so they never take the menu from it (§9.2).
 fn is_panel(k: WinKind) -> bool { matches!(k, WinKind::Info | WinKind::Help | WinKind::Alert) }
@@ -169,6 +171,7 @@ impl App {
             Win::new(WinKind::Shell, wr(&st.windows.shell), "Shell", "miniwindow"),
             Win::new(WinKind::Concurrence, wr(&st.windows.concurrence), "Concurrence", "file-text"),
             Win::new(WinKind::Librarian, wr(&st.windows.librarian), "Digital Librarian", "file-text"),
+            Win::new(WinKind::Preferences, rect(st.windows.preferences.x, st.windows.preferences.y, crate::prefs::WIN_W, crate::prefs::WIN_H), "Preferences", "computer"),
             Win::new(WinKind::Alert, rect(0, 0, 380, 176), "", "alert"),
         ];
         wins[wi(WinKind::FileViewer)].min_w = 480; wins[wi(WinKind::FileViewer)].min_h = 320;
@@ -182,6 +185,7 @@ impl App {
         wins[wi(WinKind::Shell)].min_w = 20 * crate::shell::CELL_W + SCROLL_W + 2 * crate::shell::PAD; wins[wi(WinKind::Shell)].min_h = 5 * crate::shell::CELL_H + 2 * crate::shell::PAD + TITLE_H + RESIZE_H;
         wins[wi(WinKind::Concurrence)].min_w = 360; wins[wi(WinKind::Concurrence)].min_h = 220;
         wins[wi(WinKind::Librarian)].min_w = 420; wins[wi(WinKind::Librarian)].min_h = 260;
+        wins[wi(WinKind::Preferences)].resizable = false;
         let a = &mut wins[wi(WinKind::Alert)];
         a.resizable = false; a.mini_btn = false; a.close_btn = false;
         let zoom = cfg.scale_override.filter(|z| (0.5..=4.0).contains(z)).unwrap_or(st.scale);
@@ -190,7 +194,7 @@ impl App {
         let mut app = App {
             w: st.os_window.w, h: st.os_window.h, zoom, quit: false, redraw: true, minimize: false, cfg, post, fonts,
             home: home.clone(), roots, is_win, state: st, save_at: None, wins, key: None, menu_key: None, activations: vec![], zc: 0, menu_seq: 0, menus: vec![], alert: None,
-            fv: FileViewer::default(), insp: Inspector::default(), dock: Dock::default(), rec: RecWin::default(), mandel: Mandel::default(), improv, shell: Shell::default(), concur, lib: Librarian::default(),
+            fv: FileViewer::default(), insp: Inspector::default(), dock: Dock::default(), rec: RecWin::default(), mandel: Mandel::default(), improv, shell: Shell::default(), concur, lib: Librarian::default(), prefs: Prefs::default(),
             help: WinKind::FileViewer, console, console_scroll: 0, console_stick: true, capture: None, mouse: pt(0, 0), focused: true,
             refresh_at: Instant::now() + Duration::from_secs(5), clipboard: vec![], now: Instant::now(),
         };
@@ -217,6 +221,7 @@ impl App {
         if self.state.windows.shell.open { self.show_win(WinKind::Shell); }
         if self.state.windows.concurrence.open { self.show_win(WinKind::Concurrence); }
         if self.state.windows.librarian.open { self.show_win(WinKind::Librarian); }
+        if self.state.windows.preferences.open { self.show_win(WinKind::Preferences); }
         if self.state.windows.file_viewer.open { self.activate_win(WinKind::FileViewer); }
         self.log("ReWorkspace started".into());
         let path = self.state.windows.file_viewer.path.clone();
@@ -339,7 +344,7 @@ impl App {
     pub fn take_activations(&mut self) -> Vec<WinKind> { std::mem::take(&mut self.activations) }
     fn state_win(&mut self, k: WinKind) -> Option<&mut state::WinState> {
         let w = &mut self.state.windows;
-        match k { WinKind::FileViewer => Some(&mut w.file_viewer), WinKind::Inspector => Some(&mut w.inspector), WinKind::Console => Some(&mut w.console), WinKind::Recycler => Some(&mut w.recycler), WinKind::Mandelbrot => Some(&mut w.mandelbrot), WinKind::Improv => Some(&mut w.improv), WinKind::Shell => Some(&mut w.shell), WinKind::Concurrence => Some(&mut w.concurrence), WinKind::Librarian => Some(&mut w.librarian), _ => None }
+        match k { WinKind::FileViewer => Some(&mut w.file_viewer), WinKind::Inspector => Some(&mut w.inspector), WinKind::Console => Some(&mut w.console), WinKind::Recycler => Some(&mut w.recycler), WinKind::Mandelbrot => Some(&mut w.mandelbrot), WinKind::Improv => Some(&mut w.improv), WinKind::Shell => Some(&mut w.shell), WinKind::Concurrence => Some(&mut w.concurrence), WinKind::Librarian => Some(&mut w.librarian), WinKind::Preferences => Some(&mut w.preferences), _ => None }
     }
     fn sync_win_state(&mut self, k: WinKind) {
         let (r, open) = { let w = self.win(k); (w.r, w.visible) };
@@ -547,8 +552,10 @@ impl App {
     /// The window whose menu is up: the last key one that was not a panel, while it is still there.
     pub(crate) fn menu_owner(&self) -> Option<WinKind> { self.menu_key.filter(|&k| self.win(k).shown()) }
     fn next_menu_id(&mut self) -> u64 { self.menu_seq += 1; self.menu_seq }
-    pub fn item_state(&self, it: &ItemDef) -> (bool, bool) {
-        match it.act {
+    pub fn item_state(&self, it: &ItemDef) -> (bool, bool) { self.act_state(it.act) }
+    /// (disabled, checked) for a command, wherever it is shown: a menu item or a switch.
+    pub fn act_state(&self, act: Act) -> (bool, bool) {
+        match act {
             Act::Disabled => (true, false),
             Act::Paste => (self.clipboard.is_empty(), false),
             Act::EmptyRecycler => (!cfg!(target_os = "macos"), false),
@@ -562,7 +569,7 @@ impl App {
             Act::ShowDock => (false, self.state.dock_visible),
             Act::ShowMiniwindows => (false, self.state.miniwindows_visible),
             Act::ShowRecycler => (false, self.state.recycler_visible),
-            Act::IvNewRow | Act::IvDelRow | Act::IvNewCol | Act::IvDelCol => (!self.iv_can(it.act), false),
+            Act::IvNewRow | Act::IvDelRow | Act::IvNewCol | Act::IvDelCol => (!self.iv_can(act), false),
             Act::Co(CBtn::Outline) => (false, !self.concur.slides),
             Act::Co(CBtn::Slide) => (false, self.concur.slides),
             Act::Co(CBtn::Present) => (self.c_slides().is_empty(), false),
@@ -704,6 +711,7 @@ impl App {
             Act::ShellWin => self.show_win(WinKind::Shell),
             Act::Concurrence => self.show_win(WinKind::Concurrence),
             Act::LibrarianWin => self.show_win(WinKind::Librarian),
+            Act::PrefsWin => self.show_win(WinKind::Preferences),
             Act::FileViewerWin => self.show_win(WinKind::FileViewer),
             Act::ArrangeFront => {
                 let mut order: Vec<WinKind> = self.wins.iter().filter(|w| w.shown() && w.kind != WinKind::Alert).map(|w| w.kind).collect();
@@ -717,7 +725,7 @@ impl App {
         }
         self.redraw = true;
     }
-    fn set_zoom(&mut self, z: f32) { self.zoom = z; self.state.scale = z; self.dirty(); }
+    pub(crate) fn set_zoom(&mut self, z: f32) { self.zoom = z; self.state.scale = z; self.dirty(); }
 
     // ---- events -------------------------------------------------------------------------------
     pub fn handle(&mut self, ev: Ev) {
@@ -795,6 +803,7 @@ impl App {
             WinKind::Shell => self.shell_mouse_down(p),
             WinKind::Concurrence => self.concur_mouse_down(p),
             WinKind::Librarian => self.lib_mouse_down(p),
+            WinKind::Preferences => self.pref_mouse_down(p),
             _ => {}
         }
     }
@@ -909,6 +918,7 @@ impl App {
                 self.capture = Some(Capture::TilePress { idx, start, dx, dy });
             }
             Capture::MandelDrag { start } => { self.mandel_drag(start, p); self.capture = Some(Capture::MandelDrag { start }); }
+            Capture::PrefSlider => { self.pref_slider_drag(p); self.capture = Some(Capture::PrefSlider); }
             Capture::ImprovTile { cat, grab, .. } => self.capture = Some(Capture::ImprovTile { cat, grab, at: p }),
             other => self.capture = Some(other),
         }
@@ -927,6 +937,7 @@ impl App {
             Capture::FileDrag { paths, from_shelf, .. } => self.drop(p, paths, from_shelf, mods),
             Capture::TilePress { idx, dx, dy, .. } => self.dock_tile_release(idx, dx, dy),
             Capture::MandelDrag { start } => self.mandel_release(start, p, mods),
+            Capture::PrefSlider => self.pref_slider_drop(),
             Capture::ImprovTile { cat, grab, .. } => self.iv_tile_drop(cat, pt(p.x - grab.x, p.y - grab.y)),
         }
         self.redraw = true;
@@ -954,6 +965,7 @@ impl App {
                 WinKind::Concurrence => self.concur_btn_hit(p),
                 WinKind::Improv => self.iv_btn_hit(p),
                 WinKind::Librarian => self.lib_btn_hit(p),
+                WinKind::Preferences => self.pref_btn_hit(p),
                 _ => None,
             },
             _ => None,
@@ -990,6 +1002,7 @@ impl App {
             Btn::Concur(b) => self.concur_btn(b),
             Btn::LibSearch => self.lib_search(),
             Btn::LibBook(i) => self.lib_toggle_book(i),
+            Btn::Pref(b) => self.pref_btn(b),
             Btn::Cell(..) => {}
         }
     }
@@ -1148,6 +1161,7 @@ impl App {
             WinKind::Shell => self.shell_draw(p, c),
             WinKind::Concurrence => self.concur_draw(p, c),
             WinKind::Librarian => self.lib_draw(p, c),
+            WinKind::Preferences => self.pref_draw(p, c),
             WinKind::Alert => self.alert_draw(p, c),
         }
         p.pop_clip();

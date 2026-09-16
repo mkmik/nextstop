@@ -54,6 +54,35 @@ The owner then asked for the 2.0 (1990) aesthetics. Measured from toastytech's 2
 - Panels do not take the menu from their application: `make_key` remembers the last key window that was not one (`menu_key`, read through `App::menu_owner`), so an application's Info or Help panel leaves the menu — and the Help page — its own. The Info panel used to hand the menu back to Workspace.
 - A torn-off menu's path now starts with the application it came from: `Concurrence ▸ View` and `Workspace ▸ View` are different menus that shared a path, and therefore one entry in `state.json` and one torn window. Paths written before this are bare labels and are still resolved the old way, by scanning every root.
 
+## Preferences (v0.5.2)
+
+- Modelled on the 1.0 application in toastytech's `ns10prefs.png`: one 392×319 window whose top is a
+  sunken scroll view of 69×65 module cells (2 px dark/black separator, 1 px white highlight, a 66 px
+  face, 48 px icon, white when selected) with the horizontal scroller under them, a groove, and then
+  the pane of the selected module — its name in **oblique** text at the top left, as in *Date & Time
+  Preferences*, over a bordered group whose title breaks its top edge. Every measurement in that list
+  is from the screenshot; the switch and its check mark (white stroke, black shadow, 7×7 in a 15 px
+  box white on top and left, black on the other two) are measured from `ns09prefs.png`.
+- **The modules are the settings this program has**, not the original's: Display (the scale),
+  Workspace (Dock, miniwindow and Recycler tiles, Screen Backdrop) and Expert (hidden files, and
+  where `state.json` is). Date & Time, Sound, Password, Localization, Font and UNIX Expert set
+  things we do not own, so they are not there — with three modules the icon row never scrolls, and
+  the strip under it is drawn as NeXTSTEP drew the scroller of a view that does not scroll: the
+  frame and the empty dithered slot, no knob and no arrows.
+- **A switch is the View menu command of the same name, through the same call**, so `item_state` is
+  what draws both and they cannot disagree (`Act::ShowDock` and friends, as AGENTS.md prescribes).
+- **The scale is a slider** — the one control the original used for a continuous quantity — between
+  0.5× and 4× in quarter steps, and it is applied when the knob is let go, not while it is dragged:
+  every new factor resizes the window under the pointer, so a live knob runs away from the mouse.
+  It is `View ▸ Scale`'s setting and `--scale`'s, kept in `state.json` like the menu's.
+- Oblique text is faked in the painter (`text_oblique`): the bundled Liberation faces have no
+  italic, so each glyph row is sheared right by 0.21 px per pixel above the baseline, which is what
+  Helvetica Oblique's lean measures on the screenshot. Widths are the upright ones.
+- Deviations: the window has our close and miniaturize buttons (the original had neither — it was a
+  separate process you quit, and this one is a window in ours), its menu is the original's without
+  `Edit` (nothing here is typed into), and `Info ▸ Preferences…` opens it from *every* application's
+  menu, because this program has one set of preferences rather than one per application.
+
 ## Extra application: Concurrence (v0.5)
 
 - Lighthouse Design's Concurrence was an outliner, a slide editor and a presenter over one document. Ours keeps the outliner and the presenter and reduces the editor to the one layout the outline already implies: a level-0 topic is a slide title, its descendants are its bullets, indented and drawn smaller with a square or dash marker. No styles, masters, images, charts, transitions or speaker notes — the slide is a rendering of the outline, not a second document.

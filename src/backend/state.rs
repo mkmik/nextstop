@@ -30,7 +30,7 @@ pub struct Sheet { pub cats: Vec<SheetCat>, pub cells: Vec<(Vec<u8>, f64)>, pub 
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(default)]
-pub struct Windows { pub file_viewer: WinState, pub inspector: WinState, pub console: WinState, pub recycler: WinState, pub mandelbrot: WinState, pub improv: WinState, pub shell: WinState, pub concurrence: WinState, pub librarian: WinState }
+pub struct Windows { pub file_viewer: WinState, pub inspector: WinState, pub console: WinState, pub recycler: WinState, pub mandelbrot: WinState, pub improv: WinState, pub shell: WinState, pub concurrence: WinState, pub librarian: WinState, pub preferences: WinState }
 impl Default for Windows {
     fn default() -> Self {
         Windows {
@@ -43,6 +43,7 @@ impl Default for Windows {
             shell: WinState { x: 160, y: 120, w: 591, h: 374, open: false, path: String::new() },
             concurrence: WinState { x: 140, y: 60, w: 560, h: 440, open: false, path: String::new() },
             librarian: WinState { x: 240, y: 100, w: 560, h: 420, open: false, path: String::new() },
+            preferences: WinState { x: 260, y: 180, w: 392, h: 319, open: false, path: String::new() },
         }
     }
 }

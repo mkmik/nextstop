@@ -1,4 +1,4 @@
-# ReWorkspace
+# NeXTSTOP
 
 A native, single-binary recreation of the **look** of early NeXTSTEP (the 2.0 release of 1990, with
 1.0's window chrome) — Workspace Manager, vertical menus, Dock, Recycler — running on your desktop
@@ -12,13 +12,13 @@ opens files with the host OS, the Dock launches real applications, and dragging 
 Recycler moves it to the system trash. `View ▸ Screen Backdrop` adds the dark NeXT screen behind
 everything if you want the full illusion.
 
-![ReWorkspace at 1×](docs/screenshots/screen-1x.png)
+![NeXTSTOP at 1×](docs/screenshots/screen-1x.png)
 
 At 2× (`View ▸ Scale ▸ 2×`):
 
-![ReWorkspace at 2×](docs/screenshots/screen-2x.png)
+![NeXTSTOP at 2×](docs/screenshots/screen-2x.png)
 
-> ReWorkspace is an original recreation of a *style*. It is not affiliated with, endorsed by, or
+> NeXTSTOP is an original recreation of a *style*. It is not affiliated with, endorsed by, or
 > derived from NeXT, Apple, or the GNUstep project. No artwork, fonts, or code from NeXTSTEP,
 > OPENSTEP, macOS or GNUstep is included; every icon is an original drawing in the grayscale,
 > dither-shaded idiom of the period.
@@ -28,22 +28,22 @@ At 2× (`View ▸ Scale ▸ 2×`):
 Builds are attached to [GitHub Releases](../../releases). Nothing is installed system-wide and
 no administrator rights are needed; quit at any time.
 
-**macOS (Apple Silicon)** — the app is not notarized. After copying `ReWorkspace.app` out of the
+**macOS (Apple Silicon)** — the app is not notarized. After copying `NeXTSTOP.app` out of the
 DMG, clear the quarantine flag once, exactly as ReProgman documents it:
 
 ```sh
-xattr -cr /Applications/ReWorkspace.app
+xattr -cr /Applications/NeXTSTOP.app
 ```
 
-**Windows (x64, arm64)** — `ReWorkspace-portable-*.exe` is the whole program; run it from anywhere.
+**Windows (x64, arm64)** — `NeXTSTOP-portable-*.exe` is the whole program; run it from anywhere.
 
 `View ▸ Scale` offers 1×, 1.5× and 2×, and `Info ▸ Preferences…` has the whole range on a slider
 (0.5× to 4× in quarter steps, kept in `state.json`); any factor also works from the command line,
-for example `reworkspace --scale 1.25` (0.5 to 4, not saved unless you then set one in the app).
+for example `nextstop --scale 1.25` (0.5 to 4, not saved unless you then set one in the app).
 Text and icons are re-rasterized at the new size, so nothing is upscaled bitmaps.
 
-State lives in one file: `~/Library/Application Support/ReWorkspace/state.json` (macOS) or
-`%APPDATA%\ReWorkspace\state.json` (Windows). Delete it to start fresh. A corrupt file is renamed
+State lives in one file: `~/Library/Application Support/NeXTSTOP/state.json` (macOS) or
+`%APPDATA%\NeXTSTOP\state.json` (Windows). Delete it to start fresh. A corrupt file is renamed
 to `state.json.bad` and defaults are used (the Console says so).
 
 ## What works
@@ -170,7 +170,7 @@ to `state.json.bad` and defaults are used (the Console says so).
 cargo run                     # debug build
 cargo test && cargo clippy --all-targets
 scripts/bundle-macos.sh       # release .app + .dmg in dist/ (macOS)
-cargo build --release         # Windows: target/release/reworkspace.exe is the portable build
+cargo build --release         # Windows: target/release/nextstop.exe is the portable build
 ```
 
 Look-review and tests run headlessly, without a display:

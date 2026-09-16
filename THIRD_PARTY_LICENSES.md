@@ -1,6 +1,6 @@
 # Third-party licenses
 
-ReWorkspace bundles the following third-party components.
+NeXTSTOP bundles the following third-party components.
 
 ## Liberation Fonts 2.1.5 (Liberation Sans, Liberation Mono)
 

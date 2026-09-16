@@ -1,10 +1,10 @@
 [package]
-name = "reworkspace"
+name = "nextstop"
 version = "0.5.0"
 edition = "2021"
 rust-version = "1.85"
 description = "A NeXTSTEP-style workspace, natively rendered"
-authors = ["ReWorkspace contributors"]
+authors = ["NeXTSTOP contributors"]
 
 [dependencies]
 winit = "0.30"

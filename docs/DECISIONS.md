@@ -8,7 +8,7 @@ One line per deviation, with the reason.
 - The PRD's repository layout, `?demo=` pages and Playwright notes are web-specific. Equivalents: `--demo chrome` renders the bevel/font/icon test screen; `--headless <script> --out <dir>` replays mouse/keyboard events and writes PNG screenshots (this is how every screenshot in `docs/screenshots` was made and how the app is tested without a display).
 - `--home <dir>` and `--config <dir>` override the home and config directories so tests run against a throwaway tree.
 - Milestone screenshots `m0…m6` belonged to the web version and were removed; the native screenshots are named by content.
-- macOS packaging is `scripts/bundle-macos.sh` (plain `.app` + `hdiutil` DMG, ad-hoc codesign); Windows ships the bare `reworkspace.exe`, which is fully portable (no WebView2 needed any more). The optional NSIS installer and an embedded `.exe` icon were not done.
+- macOS packaging is `scripts/bundle-macos.sh` (plain `.app` + `hdiutil` DMG, ad-hoc codesign); Windows ships the bare `nextstop.exe`, which is fully portable (no WebView2 needed any more). The optional NSIS installer and an embedded `.exe` icon were not done.
 - Miniaturize animation shrinks a gray window outline (120 ms) instead of scaling the live window contents.
 
 ## Real windows instead of one container (v0.3)

@@ -105,7 +105,7 @@ pub fn save_state(state: &State) -> Result<(), String> {
 mod tests {
     use super::*;
     fn tmp(name: &str) -> PathBuf {
-        let d = std::env::temp_dir().join(format!("reworkspace-state-{name}-{}", std::process::id()));
+        let d = std::env::temp_dir().join(format!("nextstop-state-{name}-{}", std::process::id()));
         let _ = fs::remove_dir_all(&d);
         fs::create_dir_all(&d).unwrap();
         d.join("state.json")

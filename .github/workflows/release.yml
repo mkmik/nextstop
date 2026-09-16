@@ -14,14 +14,14 @@ jobs:
       - run: cargo test
       - run: cargo clippy --all-targets -- -D warnings
       - run: scripts/bundle-macos.sh
-      - run: cd dist && zip -ry ReWorkspace-macos-arm64.app.zip ReWorkspace.app
+      - run: cd dist && zip -ry NeXTSTOP-macos-arm64.app.zip NeXTSTOP.app
       - uses: softprops/action-gh-release@v2
         with:
           draft: true
           files: |
             dist/*.dmg
             dist/*.app.zip
-          body: "Unsigned builds. macOS: run `xattr -cr /Applications/ReWorkspace.app` after copying it out of the DMG (see README)."
+          body: "Unsigned builds. macOS: run `xattr -cr /Applications/NeXTSTOP.app` after copying it out of the DMG (see README)."
   windows:
     runs-on: windows-latest
     strategy:
@@ -38,8 +38,8 @@ jobs:
         with: { targets: "${{ matrix.target }}" }
       - uses: swatinem/rust-cache@v2
       - run: cargo build --release --target ${{ matrix.target }}
-      - run: copy target\${{ matrix.target }}\release\reworkspace.exe ReWorkspace-portable-${{ matrix.arch }}.exe
+      - run: copy target\${{ matrix.target }}\release\nextstop.exe NeXTSTOP-portable-${{ matrix.arch }}.exe
       - uses: softprops/action-gh-release@v2
         with:
           draft: true
-          files: ReWorkspace-portable-${{ matrix.arch }}.exe
+          files: NeXTSTOP-portable-${{ matrix.arch }}.exe

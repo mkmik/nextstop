@@ -1,4 +1,4 @@
-# Working on ReWorkspace
+# Working on NeXTSTOP
 
 Design decisions and deviations from the original NeXTSTEP behaviour go in `docs/DECISIONS.md`;
 anything a user can see goes in `README.md`.

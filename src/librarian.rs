@@ -235,7 +235,7 @@ mod tests {
 
     #[test]
     fn ranks_by_hit_count_skips_hidden_and_binary_and_reports_the_line() {
-        let d = std::env::temp_dir().join(format!("reworkspace-lib-{}", std::process::id()));
+        let d = std::env::temp_dir().join(format!("nextstop-lib-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&d);
         std::fs::create_dir_all(d.join("sub")).unwrap();
         std::fs::create_dir_all(d.join(".git")).unwrap();

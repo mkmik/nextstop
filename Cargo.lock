@@ -963,6 +963,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "nextstop"
+version = "0.5.0"
+dependencies = [
+ "alacritty_terminal",
+ "dirs",
+ "fontdue",
+ "libc",
+ "objc2-app-kit",
+ "objc2-foundation 0.2.2",
+ "png",
+ "resvg",
+ "serde",
+ "serde_json",
+ "softbuffer",
+ "trash",
+ "winit",
+]
+
+[[package]]
 name = "num-traits"
 version = "0.2.19"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1536,25 +1555,6 @@ dependencies = [
  "svgtypes",
  "tiny-skia 0.12.0",
  "usvg",
-]
-
-[[package]]
-name = "reworkspace"
-version = "0.5.0"
-dependencies = [
- "alacritty_terminal",
- "dirs",
- "fontdue",
- "libc",
- "objc2-app-kit",
- "objc2-foundation 0.2.2",
- "png",
- "resvg",
- "serde",
- "serde_json",
- "softbuffer",
- "trash",
- "winit",
 ]
 
 [[package]]

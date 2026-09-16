@@ -44,7 +44,18 @@ pub fn default_dock() -> Vec<String> {
 static CONFIG_OVERRIDE: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
 pub fn set_config_override(p: &str) { let _ = CONFIG_OVERRIDE.set(PathBuf::from(p)); }
 pub fn config_dir() -> PathBuf {
-    CONFIG_OVERRIDE.get().cloned().unwrap_or_else(|| dirs::config_dir().unwrap_or_else(std::env::temp_dir).join("ReWorkspace"))
+    if let Some(p) = CONFIG_OVERRIDE.get() { return p.clone(); }
+    static DIR: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
+    DIR.get_or_init(|| settled_dir(&dirs::config_dir().unwrap_or_else(std::env::temp_dir))).clone()
+}
+
+/// The application was called ReWorkspace until 0.5, so an installation from then keeps its
+/// `state.json` and icon cache under the old name: move the whole directory over, once.
+/// ponytail: delete this (and the test) once nobody is upgrading from a 0.5 build any more.
+fn settled_dir(base: &Path) -> PathBuf {
+    let (old, new) = (base.join("ReWorkspace"), base.join("NeXTSTOP"));
+    if !new.exists() && old.is_dir() { let _ = std::fs::rename(&old, &new); }
+    new
 }
 
 fn cache_path(app: &Path, px: u32) -> PathBuf {
@@ -177,5 +188,34 @@ mod tests {
             let wide: Vec<u16> = input.encode_utf16().collect();
             assert_eq!(String::from_utf16(&windows_argument(&wide)).unwrap(), expected);
         }
+    }
+
+    #[test]
+    fn the_old_reworkspace_directory_is_carried_over_but_never_overwrites_ours() {
+        let base = std::env::temp_dir().join(format!("nextstop-cfg-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        let write = |dir: &str, body: &str| {
+            std::fs::create_dir_all(base.join(dir)).unwrap();
+            std::fs::write(base.join(dir).join("state.json"), body).unwrap();
+        };
+
+        // Nothing to carry over: the new directory is simply the answer.
+        std::fs::create_dir_all(&base).unwrap();
+        assert_eq!(settled_dir(&base), base.join("NeXTSTOP"));
+        assert!(!base.join("NeXTSTOP").exists());
+
+        // An installation from 0.5 keeps its preferences.
+        write("ReWorkspace", "old");
+        assert_eq!(settled_dir(&base), base.join("NeXTSTOP"));
+        assert!(!base.join("ReWorkspace").exists());
+        assert_eq!(std::fs::read_to_string(base.join("NeXTSTOP/state.json")).unwrap(), "old");
+
+        // Both present: ours wins and the old one is left alone.
+        write("ReWorkspace", "stale");
+        assert_eq!(settled_dir(&base), base.join("NeXTSTOP"));
+        assert_eq!(std::fs::read_to_string(base.join("NeXTSTOP/state.json")).unwrap(), "old");
+        assert!(base.join("ReWorkspace").is_dir());
+
+        let _ = std::fs::remove_dir_all(&base);
     }
 }

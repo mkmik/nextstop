@@ -223,7 +223,7 @@ impl App {
         if self.state.windows.librarian.open { self.show_win(WinKind::Librarian); }
         if self.state.windows.preferences.open { self.show_win(WinKind::Preferences); }
         if self.state.windows.file_viewer.open { self.activate_win(WinKind::FileViewer); }
-        self.log("ReWorkspace started".into());
+        self.log("NeXTSTOP started".into());
         let path = self.state.windows.file_viewer.path.clone();
         self.fv_navigate(&path);
         self.update_trash();
@@ -1084,7 +1084,7 @@ impl App {
         let mut v = vec![];
         if self.cfg.demo.is_some() { return v; }
         let sf = |id: SurfaceId, r: Rect, level: Level, title: &str| SurfaceInfo { id, r, level, title: title.to_string() };
-        if self.state.backdrop { v.push(sf(SurfaceId::Backdrop, rect(0, 0, self.w, self.h), Level::Bottom, "ReWorkspace")); }
+        if self.state.backdrop { v.push(sf(SurfaceId::Backdrop, rect(0, 0, self.w, self.h), Level::Bottom, "NeXTSTOP")); }
         let mut order: Vec<&Win> = self.wins.iter().filter(|w| w.shown() && w.kind != WinKind::Alert).collect();
         order.sort_by_key(|w| w.z);
         for w in order { let b = w.chrome as i32; v.push(sf(SurfaceId::Win(w.kind), rect(w.r.x - b, w.r.y - b, w.r.w + 2 * b, w.r.h + 2 * b), Level::Normal, &w.title)); }
@@ -1201,7 +1201,7 @@ impl App {
     fn info_draw(&self, p: &mut Painter, c: Rect) {
         p.icon("workspace", c.x + (c.w - 96) / 2, c.y + 4, 96);
         let line = |p: &mut Painter, y: i32, f: FontId, s: i32, t: &str| p.text_in(f, s, rect(c.x, c.y + y, c.w, 16), Align::Center, t, BLACK);
-        line(p, 102, FontId::Bold, 14, "ReWorkspace");
+        line(p, 102, FontId::Bold, 14, "NeXTSTOP");
         line(p, 118, FontId::Regular, 12, &format!("Version {}", env!("CARGO_PKG_VERSION")));
         line(p, 134, FontId::Regular, 12, "A NeXTSTEP-style workspace.");
         line(p, 148, FontId::Regular, 12, "Not affiliated with NeXT or Apple.");
